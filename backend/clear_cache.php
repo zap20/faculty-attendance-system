@@ -13,4 +13,3 @@ if (function_exists('apc_clear_cache')) {
     echo "APC cache cleared";
 }
 ?>
-//
