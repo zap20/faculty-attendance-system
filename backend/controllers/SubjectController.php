@@ -18,8 +18,13 @@ class SubjectController {
      */
     public function index(): void {
         Auth::requireAuth();
-        
+
+        $user = Auth::getCurrentUser();
         $departmentId = $_GET['departmentId'] ?? null;
+
+        if ($user && ($user['Role'] ?? null) === 'DepartmentHead' && !empty($user['DepartmentID'])) {
+            $departmentId = $user['DepartmentID'];
+        }
         
         if ($departmentId) {
             $subjects = $this->subjectModel->findByDepartment((int) $departmentId);

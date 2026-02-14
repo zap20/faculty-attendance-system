@@ -29,8 +29,17 @@ class ScheduleController {
         // Faculty can only see their own schedules
         if ($user['Role'] === 'Faculty') {
             $schedules = $this->scheduleModel->findByFaculty($user['FacultyID']);
+        } elseif ($user['Role'] === 'DepartmentHead' && !empty($user['DepartmentID'])) {
+            if ($facultyId) {
+                $faculty = $this->facultyModel->findById((string) $facultyId);
+                if (!$faculty || (int) $faculty['DepartmentID'] !== (int) $user['DepartmentID']) {
+                    Response::forbidden('Faculty does not belong to your department');
+                }
+            }
+
+            $schedules = $this->scheduleModel->findByDepartment((int) $user['DepartmentID'], $facultyId ? (string) $facultyId : null);
         } elseif ($facultyId) {
-            $schedules = $this->scheduleModel->findByFaculty((int) $facultyId);
+            $schedules = $this->scheduleModel->findByFaculty((string) $facultyId);
         } else {
             $schedules = $this->scheduleModel->findAllWithDetails();
         }
@@ -77,7 +86,7 @@ class ScheduleController {
      * POST /api/schedules
      */
     public function store(): void {
-        Auth::requireRole(['Admin', 'AttendanceOfficer']);
+        $user = Auth::requireRole(['Admin', 'AttendanceOfficer', 'DepartmentHead']);
         
         $data = json_decode(file_get_contents('php://input'), true);
 
@@ -105,6 +114,24 @@ class ScheduleController {
         }
         if (!$this->roomModel->exists($data['RoomID'])) {
             Response::error('Room not found', 404);
+        }
+
+        if ($user['Role'] === 'DepartmentHead') {
+            if (empty($user['DepartmentID'])) {
+                Response::error('DepartmentHead account is not linked to any department', 400);
+            }
+
+            $departmentId = (int) $user['DepartmentID'];
+
+            $faculty = $this->facultyModel->findById((string) $data['FacultyID']);
+            if (!$faculty || (int) $faculty['DepartmentID'] !== $departmentId) {
+                Response::forbidden('Faculty does not belong to your department');
+            }
+
+            $subject = $this->subjectModel->findById((int) $data['SubjectID']);
+            if (!$subject || (int) $subject['DepartmentID'] !== $departmentId) {
+                Response::forbidden('Subject does not belong to your department');
+            }
         }
 
         // Validate time range
@@ -142,11 +169,23 @@ class ScheduleController {
      * PUT /api/schedules/{id}
      */
     public function update(int $id): void {
-        Auth::requireRole(['Admin', 'AttendanceOfficer']);
+        $user = Auth::requireRole(['Admin', 'AttendanceOfficer', 'DepartmentHead']);
         
         $schedule = $this->scheduleModel->findById($id);
         if (!$schedule) {
             Response::notFound('Schedule not found');
+        }
+
+        if ($user['Role'] === 'DepartmentHead') {
+            if (empty($user['DepartmentID'])) {
+                Response::error('DepartmentHead account is not linked to any department', 400);
+            }
+
+            $departmentId = (int) $user['DepartmentID'];
+            $existingFaculty = $this->facultyModel->findById((string) $schedule['FacultyID']);
+            if (!$existingFaculty || (int) $existingFaculty['DepartmentID'] !== $departmentId) {
+                Response::forbidden('Cannot modify schedules from other departments');
+            }
         }
 
         $data = json_decode(file_get_contents('php://input'), true);
@@ -175,6 +214,20 @@ class ScheduleController {
         }
         if (!$this->roomModel->exists($data['RoomID'])) {
             Response::error('Room not found', 404);
+        }
+
+        if ($user['Role'] === 'DepartmentHead') {
+            $departmentId = (int) $user['DepartmentID'];
+
+            $faculty = $this->facultyModel->findById((string) $data['FacultyID']);
+            if (!$faculty || (int) $faculty['DepartmentID'] !== $departmentId) {
+                Response::forbidden('Faculty does not belong to your department');
+            }
+
+            $subject = $this->subjectModel->findById((int) $data['SubjectID']);
+            if (!$subject || (int) $subject['DepartmentID'] !== $departmentId) {
+                Response::forbidden('Subject does not belong to your department');
+            }
         }
 
         // Validate time range
@@ -213,11 +266,23 @@ class ScheduleController {
      * DELETE /api/schedules/{id}
      */
     public function destroy(int $id): void {
-        Auth::requireRole(['Admin', 'AttendanceOfficer']);
+        $user = Auth::requireRole(['Admin', 'AttendanceOfficer', 'DepartmentHead']);
         
         $schedule = $this->scheduleModel->findById($id);
         if (!$schedule) {
             Response::notFound('Schedule not found');
+        }
+
+        if ($user['Role'] === 'DepartmentHead') {
+            if (empty($user['DepartmentID'])) {
+                Response::error('DepartmentHead account is not linked to any department', 400);
+            }
+
+            $departmentId = (int) $user['DepartmentID'];
+            $existingFaculty = $this->facultyModel->findById((string) $schedule['FacultyID']);
+            if (!$existingFaculty || (int) $existingFaculty['DepartmentID'] !== $departmentId) {
+                Response::forbidden('Cannot delete schedules from other departments');
+            }
         }
 
         $this->scheduleModel->delete($id);

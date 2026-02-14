@@ -5,7 +5,7 @@
  */
 
 class AttendanceModel extends BaseModel {
-    protected $table = 'ATTENDANCES';
+    protected $table = 'attendances';
     protected $primaryKey = 'AttendanceID';
 
     public function findAllWithDetails(array $filters = []): array {
@@ -16,13 +16,13 @@ class AttendanceModel extends BaseModel {
                    s.SubjectID, sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building,
                    dept.DepartmentName
-            FROM ATTENDANCES a
-            JOIN FACULTIES f ON a.FacultyID = f.FacultyID
-            LEFT JOIN ATTENDANCEDEVICES d ON a.DeviceID = d.DeviceID
-            LEFT JOIN SCHEDULES s ON a.ScheduleID = s.ScheduleID
-            LEFT JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            LEFT JOIN ROOMS r ON s.RoomID = r.RoomID
-            LEFT JOIN DEPARTMENTS dept ON f.DepartmentID = dept.DepartmentID
+            FROM attendances a
+            JOIN faculties f ON a.FacultyID = f.FacultyID
+            LEFT JOIN attendancedevices d ON a.DeviceID = d.DeviceID
+            LEFT JOIN schedules s ON a.ScheduleID = s.ScheduleID
+            LEFT JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            LEFT JOIN rooms r ON s.RoomID = r.RoomID
+            LEFT JOIN departments dept ON f.DepartmentID = dept.DepartmentID
             WHERE 1=1
         ";
         $params = [];
@@ -61,11 +61,11 @@ class AttendanceModel extends BaseModel {
                    d.DeviceType, d.Location as DeviceLocation,
                    s.SubjectID, sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building
-            FROM ATTENDANCES a
-            LEFT JOIN ATTENDANCEDEVICES d ON a.DeviceID = d.DeviceID
-            LEFT JOIN SCHEDULES s ON a.ScheduleID = s.ScheduleID
-            LEFT JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            LEFT JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM attendances a
+            LEFT JOIN attendancedevices d ON a.DeviceID = d.DeviceID
+            LEFT JOIN schedules s ON a.ScheduleID = s.ScheduleID
+            LEFT JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            LEFT JOIN rooms r ON s.RoomID = r.RoomID
             WHERE a.FacultyID = ? AND a.Date = ?
             ORDER BY a.TimeIn
         ");
@@ -78,7 +78,7 @@ class AttendanceModel extends BaseModel {
      */
     public function findOpenAttendance($facultyId, string $date): ?array {
         $stmt = $this->db->prepare("
-            SELECT * FROM ATTENDANCES 
+            SELECT * FROM attendances 
             WHERE FacultyID = ? AND Date = ? AND TimeIn IS NOT NULL AND TimeOut IS NULL
             ORDER BY TimeIn DESC
             LIMIT 1
@@ -93,7 +93,7 @@ class AttendanceModel extends BaseModel {
      */
     public function hasAttendanceForSchedule($facultyId, $scheduleId, string $date): bool {
         $stmt = $this->db->prepare("
-            SELECT 1 FROM ATTENDANCES 
+            SELECT 1 FROM attendances 
             WHERE FacultyID = ? AND ScheduleID = ? AND Date = ?
             LIMIT 1
         ");
@@ -112,8 +112,8 @@ class AttendanceModel extends BaseModel {
                 SUM(CASE WHEN a.AttendanceStatus = 'Late' THEN 1 ELSE 0 END) as Late,
                 SUM(CASE WHEN a.AttendanceStatus = 'No Schedule' THEN 1 ELSE 0 END) as NoSchedule,
                 SUM(CASE WHEN a.AttendanceStatus = 'Wrong Room' THEN 1 ELSE 0 END) as WrongRoom
-            FROM ATTENDANCES a
-            JOIN FACULTIES f ON a.FacultyID = f.FacultyID
+            FROM attendances a
+            JOIN faculties f ON a.FacultyID = f.FacultyID
             WHERE a.Date = ?
         ";
         $params = [$date];
@@ -140,8 +140,8 @@ class AttendanceModel extends BaseModel {
                 SUM(CASE WHEN a.AttendanceStatus = 'Late' THEN 1 ELSE 0 END) as LateCount,
                 SUM(CASE WHEN a.AttendanceStatus = 'No Schedule' THEN 1 ELSE 0 END) as NoScheduleCount,
                 SUM(CASE WHEN a.AttendanceStatus = 'Wrong Room' THEN 1 ELSE 0 END) as WrongRoomCount
-            FROM FACULTIES f
-            LEFT JOIN ATTENDANCES a ON f.FacultyID = a.FacultyID AND a.Date BETWEEN ? AND ?
+            FROM faculties f
+            LEFT JOIN attendances a ON f.FacultyID = a.FacultyID AND a.Date BETWEEN ? AND ?
             WHERE f.DepartmentID = ?
             GROUP BY f.FacultyID, f.FacultyName
             ORDER BY f.FacultyName

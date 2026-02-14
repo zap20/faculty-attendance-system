@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import '../models/models.dart';
-import '../services/attendance_service.dart';
-import '../services/api_service.dart';
+import '../services/offline/repository_provider.dart';
 
 class AttendanceProvider with ChangeNotifier {
   List<ScheduleModel> _todaySchedules = [];
@@ -29,24 +28,27 @@ class AttendanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      // Load schedules
-      final scheduleData = await AttendanceService.getTodaySchedules();
-      _todayDate = scheduleData['date'] ?? '';
-      _dayOfWeek = scheduleData['dayOfWeek'] ?? '';
-      _todaySchedules = scheduleData['schedules'] as List<ScheduleModel>;
+      final repo = RepositoryProvider();
+      
+      // Load schedules and attendance using smart repository with fallback
+      _todaySchedules = await repo.smartExecute(
+        (r) => r.getSchedules(),
+        operationName: 'GetSchedules',
+      );
+      _todayAttendances = await repo.smartExecute(
+        (r) => r.getTodayAttendance(),
+        operationName: 'GetTodayAttendance',
+      );
+      
+      // Set date info
+      final now = DateTime.now();
+      _todayDate = '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      _dayOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][now.weekday - 1];
 
-      // Load today's attendance
-      final attendanceData = await AttendanceService.getTodayAttendance();
-      _todayAttendances = attendanceData['attendances'] as List<AttendanceModel>;
-
-      _isLoading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
       _isLoading = false;
       notifyListeners();
     } catch (e) {
-      _error = 'Failed to load data';
+      _error = 'Failed to load data: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
     }
@@ -60,22 +62,22 @@ class AttendanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await AttendanceService.timeIn(deviceId);
-      final attendance = result['attendance'];
-      final status = attendance?['AttendanceStatus'] ?? 'Unknown';
+      final repo = RepositoryProvider();
+      final result = await repo.smartExecute(
+        (r) => r.timeIn(deviceId: deviceId),
+        operationName: 'TimeIn',
+      );
       
-      _successMessage = 'Time in recorded: $status';
+      final status = result['data']?['status'] ?? 'Recorded';
+      final isOffline = result['data']?['offline'] == true;
+      
+      _successMessage = 'Time in recorded: $status${isOffline ? ' (offline)' : ''}';
       
       // Reload today's data
       await loadTodayData();
       return true;
-    } on ApiException catch (e) {
-      _error = e.message;
-      _isLoading = false;
-      notifyListeners();
-      return false;
     } catch (e) {
-      _error = 'Failed to record time in';
+      _error = 'Failed to record time in: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
       return false;
@@ -90,19 +92,20 @@ class AttendanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      await AttendanceService.timeOut(deviceId);
-      _successMessage = 'Time out recorded successfully';
+      final repo = RepositoryProvider();
+      final result = await repo.smartExecute(
+        (r) => r.timeOut(deviceId: deviceId),
+        operationName: 'TimeOut',
+      );
+      
+      final isOffline = result['data']?['offline'] == true;
+      _successMessage = 'Time out recorded successfully${isOffline ? ' (offline)' : ''}';
       
       // Reload today's data
       await loadTodayData();
       return true;
-    } on ApiException catch (e) {
-      _error = e.message;
-      _isLoading = false;
-      notifyListeners();
-      return false;
     } catch (e) {
-      _error = 'Failed to record time out';
+      _error = 'Failed to record time out: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
       return false;
@@ -116,16 +119,15 @@ class AttendanceProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final data = await AttendanceService.getHistory(from: from, to: to);
-      _historyAttendances = data['attendances'] as List<AttendanceModel>;
-      _isLoading = false;
-      notifyListeners();
-    } on ApiException catch (e) {
-      _error = e.message;
+      final repo = RepositoryProvider();
+      _historyAttendances = await repo.smartExecute(
+        (r) => r.getAttendanceHistory(from: from, to: to),
+        operationName: 'GetHistory',
+      );
       _isLoading = false;
       notifyListeners();
     } catch (e) {
-      _error = 'Failed to load history';
+      _error = 'Failed to load history: ${e.toString()}';
       _isLoading = false;
       notifyListeners();
     }

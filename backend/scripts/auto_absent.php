@@ -54,7 +54,7 @@ if ($isToday) {
 }
 
 $baseWhereSql .= " AND NOT EXISTS (\n";
-$baseWhereSql .= "     SELECT 1 FROM ATTENDANCES a\n";
+$baseWhereSql .= "     SELECT 1 FROM attendances a\n";
 $baseWhereSql .= "     WHERE a.FacultyID = s.FacultyID\n";
 $baseWhereSql .= "       AND a.ScheduleID = s.ScheduleID\n";
 $baseWhereSql .= "       AND a.Date = ?\n";
@@ -63,7 +63,7 @@ $baseWhereSql .= " ) ";
 $params[] = $date;
 
 if ($dryRun) {
-    $countSql = "SELECT COUNT(*) AS cnt FROM SCHEDULES s " . $baseWhereSql;
+    $countSql = "SELECT COUNT(*) AS cnt FROM schedules s " . $baseWhereSql;
     $stmt = $db->prepare($countSql);
     $stmt->execute($params);
     $cnt = (int)($stmt->fetch()['cnt'] ?? 0);
@@ -81,7 +81,7 @@ if ($dryRun) {
 }
 
 $insertSql = "
-    INSERT INTO ATTENDANCES (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks)
+    INSERT INTO attendances (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks)
     SELECT 
         s.FacultyID,
         NULL,
@@ -92,7 +92,7 @@ $insertSql = "
         NULL,
         'Absent',
         'Auto-marked absent'
-    FROM SCHEDULES s
+    FROM schedules s
 ";
 
 $insertSql .= $baseWhereSql;

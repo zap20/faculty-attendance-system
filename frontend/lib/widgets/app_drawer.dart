@@ -27,6 +27,8 @@ class AppDrawer extends StatelessWidget {
           ..._buildAdminDrawerItems(),
         ] else if (user?.isAttendanceOfficer == true) ...[
           ..._buildOfficerDrawerItems(),
+        ] else if (user?.isDepartmentHead == true) ...[
+          ..._buildDepartmentHeadDrawerItems(),
         ] else ...[
           ..._buildFacultyDrawerItems(),
         ],
@@ -35,6 +37,41 @@ class AppDrawer extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildDepartmentHeadDrawerItems() {
+    return [
+      _buildDrawerItem(
+        'Dashboard',
+        Icons.dashboard,
+        currentScreen == 'dept_head_dashboard',
+        () => onItemSelected?.call('dept_head_dashboard'),
+      ),
+      _buildDrawerItem(
+        'Faculty',
+        Icons.people,
+        currentScreen == 'dept_head_faculty',
+        () => onItemSelected?.call('dept_head_faculty'),
+      ),
+      _buildDrawerItem(
+        'Schedules',
+        Icons.schedule,
+        currentScreen == 'dept_head_schedules',
+        () => onItemSelected?.call('dept_head_schedules'),
+      ),
+      _buildDrawerItem(
+        'Attendance Analytics',
+        Icons.analytics,
+        currentScreen == 'dept_head_analytics',
+        () => onItemSelected?.call('dept_head_analytics'),
+      ),
+      _buildDrawerItem(
+        'Reports',
+        Icons.assessment,
+        currentScreen == 'dept_head_reports',
+        () => onItemSelected?.call('dept_head_reports'),
+      ),
+    ];
   }
 
   Widget _buildDrawerHeader(dynamic user) {
@@ -226,7 +263,7 @@ class AppDrawer extends StatelessWidget {
         ),
       ),
       selected: isSelected,
-      selectedTileColor: Colors.blue.withValues(alpha: 0.1),
+      selectedTileColor: Colors.blue.withOpacity(0.1),
       onTap: onTap,
     );
   }

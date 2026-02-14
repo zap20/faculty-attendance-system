@@ -1,0 +1,27 @@
+# Correct MIME types for Flutter web
+AddType application/javascript .js
+AddType application/json .json
+AddType application/wasm .wasm
+AddType text/html .html
+AddType text/css .css
+
+# Disable InfinityFree caching for JS/JSON files
+<IfModule mod_headers.c>
+  <FilesMatch "\.(js|json|wasm)$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Content-Type "application/javascript" env=!json
+  </FilesMatch>
+  <FilesMatch "\.json$">
+    Header set Content-Type "application/json"
+  </FilesMatch>
+</IfModule>
+
+# SPA routing - redirect all requests to index.html
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>

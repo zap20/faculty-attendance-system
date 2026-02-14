@@ -66,27 +66,43 @@ faculty-attendance-system/
 
 2. **Create Database**
    ```sql
-   CREATE DATABASE faculty_attendance;
+   CREATE DATABASE faculty_attendance_db;
    ```
 
 3. **Import Schema**
    - Open phpMyAdmin (http://localhost/phpmyadmin)
-   - Select `faculty_attendance` database
+   - Select `faculty_attendance_db` database
    - Import `database/schema.sql`
 
-4. **Configure Backend**
-   - Copy `backend` folder to `C:\xampp\htdocs\faculty-attendance-api`
+4. **Apply DepartmentHead Migration**
+   - Import `database/add_department_head_userid.sql`
+
+5. **Link a DepartmentHead user to a department**
+   - Example (Computer Science head = `john.smith`):
+   ```sql
+   UPDATE departments
+   SET DepartmentHeadUserID = (SELECT UserID FROM useraccounts WHERE Username = 'john.smith')
+   WHERE DepartmentID = 1;
+   ```
+
+6. **Configure Backend**
    - Update database credentials in `backend/config/database.php` if needed:
      ```php
      define('DB_HOST', 'localhost');
-     define('DB_NAME', 'faculty_attendance');
+     define('DB_NAME', 'faculty_attendance_db');
      define('DB_USER', 'root');
      define('DB_PASS', '');
      ```
 
-5. **Test API**
-   - Open browser: http://localhost/faculty-attendance-api/api/
-   - Should return: `{"success":true,"message":"Faculty Attendance API"}`
+7. **Run API**
+   - From the project root:
+   ```bash
+   php -S localhost:8000 -t backend
+   ```
+
+8. **Test API**
+   - Open browser: http://localhost:8000/api/index.php
+   - Should return a JSON success response
 
 ### Frontend Setup
 
@@ -103,8 +119,8 @@ faculty-attendance-system/
 3. **Configure API URL** (if needed)
    - Edit `lib/config/app_config.dart`
    - Update `apiBaseUrl` for your environment:
-     - Web: `http://localhost/faculty-attendance-api/api`
-     - Android Emulator: `http://10.0.2.2/faculty-attendance-api/api`
+     - Web: `http://localhost:8000/api/index.php`
+     - Android Emulator: `http://10.0.2.2:8000/api/index.php`
      - Physical Device: Use your computer's IP address
 
 4. **Run the App**
@@ -125,17 +141,49 @@ faculty-attendance-system/
 |------|----------|----------|
 | Admin | admin | password123 |
 | Attendance Officer | officer1 | password123 |
-| Department Head | dept.head | password123 |
+| Department Head | john.smith | password123 |
+| Department Head | sarah.williams | password123 |
 | Faculty | maria.garcia | password123 |
-| Faculty | john.smith | password123 |
+
+## DepartmentHead Quick Test
+
+1. **Run migration**
+   - Import `database/add_department_head_userid.sql`
+
+2. **Link a department to a DepartmentHead user**
+   - Example: link Computer Science (DepartmentID=1) to `john.smith`
+   ```sql
+   UPDATE departments
+   SET DepartmentHeadUserID = (SELECT UserID FROM useraccounts WHERE Username = 'john.smith')
+   WHERE DepartmentID = 1;
+   ```
+
+3. **Login as DepartmentHead**
+   - Username: `john.smith`
+   - Password: `password123`
+   - You should land on the DepartmentHead dashboard.
+
+4. **Create Faculty (auto user)**
+   - Open `Faculty` in the sidebar.
+   - Fill out the form (Faculty Name, Position, Employment Status, Username).
+   - The API returns generated credentials if you leave temp password blank.
+
+5. **Create Schedule**
+   - Open `Schedules` in the sidebar.
+   - Pick a faculty, subject, room, day, start/end time.
+   - Conflicts (faculty/time overlap or room/time overlap) return `409`.
+
+6. **View Analytics**
+   - Open `Attendance Analytics` in the sidebar.
+   - The dashboard loads department-scoped breakdown and trend.
 
 ## API Endpoints
 
 ### Authentication
 - `POST /auth/login` - Login
 - `POST /auth/logout` - Logout
-- `GET /auth/me` - Get current user
-- `POST /auth/change-password` - Change password
+- `GET /me` - Get current user
+- `PUT /auth/password` - Change password
 
 ### Faculty
 - `GET /faculties` - List all faculty
@@ -191,6 +239,16 @@ faculty-attendance-system/
 - `GET /reports/summary` - Attendance summary
 - `GET /reports/department/{id}` - Department report
 - `GET /reports/dashboard` - Dashboard statistics
+
+### DepartmentHead
+- `GET /department-head/dashboard/summary` - Department KPIs and summary
+- `GET /department-head/analytics` - Department analytics (supports `from`, `to`, `facultyId`, `subjectId`, `roomId`)
+- `GET /department-head/faculties` - List department faculty
+- `POST /department-head/faculties` - Create faculty and auto-create user account
+- `GET /department-head/schedules` - List schedules (optional `facultyId`)
+- `POST /department-head/schedules` - Create schedule (conflict-checked)
+- `PUT /department-head/schedules/{id}` - Update schedule (conflict-checked)
+- `DELETE /department-head/schedules/{id}` - Delete schedule
 
 ## Attendance Verification Logic
 

@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/data_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/sync_status_widget.dart';
+import '../shared/reports_screen.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -32,7 +34,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
+      // Dashboard not available offline
+      setState(() {
+        _dashboardData = {};
+        _isLoading = false;
+      });
     }
   }
 
@@ -84,6 +90,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
+          const SyncStatusWidget(),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadDashboard,
@@ -523,67 +530,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildReportsView() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Attendance Reports',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Generate Report',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Daily summary report feature')),
-                          );
-                        },
-                        icon: const Icon(Icons.today),
-                        label: const Text('Daily Summary'),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Department report feature')),
-                          );
-                        },
-                        icon: const Icon(Icons.business),
-                        label: const Text('Department Report'),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Faculty report feature')),
-                          );
-                        },
-                        icon: const Icon(Icons.person),
-                        label: const Text('Faculty Report'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
+    return const ReportsScreen();
   }
 
   Widget _buildCrudView<T>({

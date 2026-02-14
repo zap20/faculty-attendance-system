@@ -129,36 +129,40 @@ class AttendanceController {
         $scheduleId = null;
 
         if (!$schedule) {
-            // No matching schedule found
-            $status = 'No Schedule';
-            $remarks = 'No matching schedule for ' . $dayOfWeek . ' at ' . $currentTime;
+            // No matching schedule found - do not insert attendance, just return warning
+            Response::success([
+                'action' => 'no_schedule',
+                'inserted' => false,
+                'message' => 'You don\'t have a schedule for this time or today'
+            ], 'No schedule');
+            return;
+        }
+
+        $scheduleId = $schedule['ScheduleID'];
+        
+        // Check if already recorded attendance for this schedule
+        if ($this->attendanceModel->hasAttendanceForSchedule($facultyId, $scheduleId, $today)) {
+            Response::error('Attendance already recorded for this schedule', 400);
+        }
+
+        // Check if device room matches schedule room
+        if ($device['RoomID'] != $schedule['RoomID']) {
+            $status = 'Wrong Room';
+            $remarks = 'Expected: ' . $schedule['RoomName'] . ' (' . $schedule['Building'] . '), ' .
+                      'Actual: ' . ($device['RoomName'] ?? $device['Location']);
         } else {
-            $scheduleId = $schedule['ScheduleID'];
-            
-            // Check if already recorded attendance for this schedule
-            if ($this->attendanceModel->hasAttendanceForSchedule($facultyId, $scheduleId, $today)) {
-                Response::error('Attendance already recorded for this schedule', 400);
-            }
+            // Check if late (current time > StartTime + grace period)
+            $startTime = strtotime($schedule['StartTime']);
+            $graceTime = $startTime + (GRACE_PERIOD_MINUTES * 60);
+            $now = strtotime($currentTime);
 
-            // Check if device room matches schedule room
-            if ($device['RoomID'] != $schedule['RoomID']) {
-                $status = 'Wrong Room';
-                $remarks = 'Expected: ' . $schedule['RoomName'] . ' (' . $schedule['Building'] . '), ' .
-                          'Actual: ' . ($device['RoomName'] ?? $device['Location']);
+            if ($now > $graceTime) {
+                $status = 'Late';
+                $lateMinutes = round(($now - $startTime) / 60);
+                $remarks = 'Arrived ' . $lateMinutes . ' minutes after scheduled start time';
             } else {
-                // Check if late (current time > StartTime + grace period)
-                $startTime = strtotime($schedule['StartTime']);
-                $graceTime = $startTime + (GRACE_PERIOD_MINUTES * 60);
-                $now = strtotime($currentTime);
-
-                if ($now > $graceTime) {
-                    $status = 'Late';
-                    $lateMinutes = round(($now - $startTime) / 60);
-                    $remarks = 'Arrived ' . $lateMinutes . ' minutes after scheduled start time';
-                } else {
-                    $status = 'Present';
-                    $remarks = 'On time for ' . $schedule['SubjectName'] . ' (' . $schedule['CourseCode'] . ')';
-                }
+                $status = 'Present';
+                $remarks = 'On time for ' . $schedule['SubjectName'] . ' (' . $schedule['CourseCode'] . ')';
             }
         }
 
@@ -299,7 +303,7 @@ class AttendanceController {
         $db = Database::getInstance()->getConnection();
 
         $sql = "
-            INSERT INTO ATTENDANCES (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks)
+            INSERT INTO attendances (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks)
             SELECT 
                 s.FacultyID,
                 NULL,
@@ -310,7 +314,7 @@ class AttendanceController {
                 NULL,
                 'Absent',
                 'Auto-marked absent'
-            FROM SCHEDULES s
+            FROM schedules s
             WHERE s.DayOfWeek = ?
         ";
 
@@ -342,6 +346,109 @@ class AttendanceController {
             'cutoff_time' => $isToday ? $cutoffTime : null,
             'inserted' => $stmt->rowCount(),
         ]);
+    }
+
+    /**
+     * PUT /api/attendance/update-status
+     * Officer can update attendance status (Absent, Early Out, etc.)
+     */
+    public function updateStatus(): void {
+        $user = Auth::requireAuth();
+        if (!in_array($user['Role'], ['Admin', 'AttendanceOfficer'])) {
+            Response::error('Unauthorized', 403);
+        }
+
+        $data = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $scheduleId = $data['scheduleId'] ?? null;
+        $facultyId = $data['facultyId'] ?? null;
+        $date = $data['date'] ?? null;
+        $action = $data['action'] ?? null; // 'absent' | 'early_out' | 'update_status'
+        $remarks = $data['remarks'] ?? null;
+        $newStatus = $data['status'] ?? null;
+
+        if (!$facultyId || !$date || !$action) {
+            Response::error('facultyId, date, and action are required', 400);
+        }
+
+        $db = Database::getInstance()->getConnection();
+
+        if ($action === 'absent') {
+            // Mark as absent: create a new attendance record with no TimeIn/TimeOut
+            if (!$scheduleId) {
+                Response::error('scheduleId is required to mark absent', 400);
+            }
+
+            // Check if attendance already exists for this schedule+date
+            if ($this->attendanceModel->hasAttendanceForSchedule($facultyId, $scheduleId, $date)) {
+                // Update existing record to Absent
+                $stmt = $db->prepare("UPDATE attendances SET AttendanceStatus = 'Absent', TimeIn = NULL, TimeOut = NULL, Remarks = ? WHERE FacultyID = ? AND ScheduleID = ? AND Date = ?");
+                $stmt->execute([$remarks ?? 'Marked absent by officer', $facultyId, $scheduleId, $date]);
+            } else {
+                // Insert new absent record
+                $dayOfWeek = (new \DateTime($date))->format('l');
+                $this->attendanceModel->create([
+                    'FacultyID' => $facultyId,
+                    'DeviceID' => null,
+                    'ScheduleID' => $scheduleId,
+                    'Date' => $date,
+                    'DayOfWeek' => $dayOfWeek,
+                    'TimeIn' => null,
+                    'TimeOut' => null,
+                    'AttendanceStatus' => 'Absent',
+                    'Remarks' => $remarks ?? 'Marked absent by officer',
+                ]);
+            }
+
+            Response::success(['action' => 'absent', 'facultyId' => $facultyId, 'scheduleId' => $scheduleId, 'date' => $date], 'Marked as absent');
+
+        } elseif ($action === 'early_out') {
+            // Set early out: update TimeOut to current time or provided time
+            $timeOut = $data['timeOut'] ?? date('H:i:s');
+
+            $stmt = $db->prepare("UPDATE attendances SET TimeOut = ?, Remarks = CONCAT(IFNULL(Remarks,''), ' | Early out by officer') WHERE FacultyID = ? AND Date = ? AND ScheduleID = ? AND TimeIn IS NOT NULL");
+            $params = [$timeOut, $facultyId, $date, $scheduleId];
+
+            if (!$scheduleId) {
+                // If no scheduleId, update the latest open attendance for that date
+                $stmt = $db->prepare("UPDATE attendances SET TimeOut = ?, Remarks = CONCAT(IFNULL(Remarks,''), ' | Early out by officer') WHERE FacultyID = ? AND Date = ? AND TimeIn IS NOT NULL AND TimeOut IS NULL ORDER BY TimeIn DESC LIMIT 1");
+                $params = [$timeOut, $facultyId, $date];
+            }
+
+            $stmt->execute($params);
+
+            if ($stmt->rowCount() === 0) {
+                Response::error('No open attendance record found to set early out', 404);
+            }
+
+            Response::success(['action' => 'early_out', 'facultyId' => $facultyId, 'date' => $date, 'timeOut' => $timeOut], 'Early out recorded');
+
+        } elseif ($action === 'update_status') {
+            if (!$newStatus) {
+                Response::error('status is required for update_status action', 400);
+            }
+
+            $sql = "UPDATE attendances SET AttendanceStatus = ?";
+            $params = [$newStatus];
+            if ($remarks !== null) {
+                $sql .= ", Remarks = ?";
+                $params[] = $remarks;
+            }
+            $sql .= " WHERE FacultyID = ? AND Date = ?";
+            $params[] = $facultyId;
+            $params[] = $date;
+            if ($scheduleId) {
+                $sql .= " AND ScheduleID = ?";
+                $params[] = $scheduleId;
+            }
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+
+            Response::success(['action' => 'update_status', 'status' => $newStatus], 'Status updated');
+        } else {
+            Response::error('Invalid action. Use: absent, early_out, update_status', 400);
+        }
     }
 
     /**
@@ -434,8 +541,8 @@ class AttendanceController {
                 'faculty_name' => $faculty['FacultyName'],
                 'day_of_week' => $dayOfWeek,
                 'scan_time' => $currentTime,
-                'message' => 'You don\'t have a schedule for this time or today'
-            ], 'No schedule');
+                'message' => 'No schedule for ' . $dayOfWeek . ' at ' . $currentTime
+            ], 'No schedule found');
             return;
         }
 
@@ -466,6 +573,8 @@ class AttendanceController {
             $db = Database::getInstance()->getConnection();
             
             $sql = "INSERT INTO ATTENDANCES (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            $sql = "INSERT INTO attendances (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             
             $stmt = $db->prepare($sql);

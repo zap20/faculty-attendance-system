@@ -85,6 +85,16 @@ class AuthService {
     await prefs.remove(AppConfig.userKey);
   }
 
+  /// Save user data for offline session (no token needed)
+  static Future<void> saveOfflineSession(UserModel user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(AppConfig.userKey, json.encode(user.toJson()));
+    // Set a placeholder token so isLoggedIn() returns true
+    if (prefs.getString(AppConfig.tokenKey) == null) {
+      await prefs.setString(AppConfig.tokenKey, 'offline_session');
+    }
+  }
+
   static Future<bool> isLoggedIn() async {
     final token = await getStoredToken();
     return token != null && token.isNotEmpty;

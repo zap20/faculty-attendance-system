@@ -13,7 +13,7 @@ abstract class BaseModel {
         $this->db = Database::getInstance()->getConnection();
     }
 
-    public function findAll(array $conditions = [], string $orderBy = null): array {
+    public function findAll(array $conditions = [], ?string $orderBy = null): array {
         $sql = "SELECT * FROM {$this->table}";
         $params = [];
 

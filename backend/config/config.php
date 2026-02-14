@@ -4,9 +4,10 @@
  * Faculty Attendance and Monitoring System
  */
 
-// Error reporting (disable in production)
+// Error reporting (log errors but never display them in output — prevents HTML leaking into JSON responses)
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
 
 // Timezone
 date_default_timezone_set('Asia/Manila');

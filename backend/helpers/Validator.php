@@ -12,7 +12,7 @@ class Validator {
         $this->data = $data;
     }
 
-    public function required(string $field, string $label = null): self {
+    public function required(string $field, ?string $label = null): self {
         $label = $label ?? $field;
         if (!isset($this->data[$field]) || trim($this->data[$field]) === '') {
             $this->errors[$field] = "$label is required";
@@ -20,7 +20,7 @@ class Validator {
         return $this;
     }
 
-    public function email(string $field, string $label = null): self {
+    public function email(string $field, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field]) && !filter_var($this->data[$field], FILTER_VALIDATE_EMAIL)) {
             $this->errors[$field] = "$label must be a valid email";
@@ -28,7 +28,7 @@ class Validator {
         return $this;
     }
 
-    public function minLength(string $field, int $min, string $label = null): self {
+    public function minLength(string $field, int $min, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field]) && strlen($this->data[$field]) < $min) {
             $this->errors[$field] = "$label must be at least $min characters";
@@ -36,7 +36,7 @@ class Validator {
         return $this;
     }
 
-    public function maxLength(string $field, int $max, string $label = null): self {
+    public function maxLength(string $field, int $max, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field]) && strlen($this->data[$field]) > $max) {
             $this->errors[$field] = "$label must not exceed $max characters";
@@ -44,7 +44,7 @@ class Validator {
         return $this;
     }
 
-    public function numeric(string $field, string $label = null): self {
+    public function numeric(string $field, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field]) && !is_numeric($this->data[$field])) {
             $this->errors[$field] = "$label must be a number";
@@ -52,7 +52,7 @@ class Validator {
         return $this;
     }
 
-    public function integer(string $field, string $label = null): self {
+    public function integer(string $field, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field]) && !filter_var($this->data[$field], FILTER_VALIDATE_INT)) {
             $this->errors[$field] = "$label must be an integer";
@@ -60,7 +60,15 @@ class Validator {
         return $this;
     }
 
-    public function inArray(string $field, array $allowed, string $label = null): self {
+    public function string(string $field, ?string $label = null): self {
+        $label = $label ?? $field;
+        if (isset($this->data[$field]) && !is_string($this->data[$field])) {
+            $this->errors[$field] = "$label must be a string";
+        }
+        return $this;
+    }
+
+    public function inArray(string $field, array $allowed, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field]) && !in_array($this->data[$field], $allowed)) {
             $this->errors[$field] = "$label must be one of: " . implode(', ', $allowed);
@@ -68,7 +76,7 @@ class Validator {
         return $this;
     }
 
-    public function date(string $field, string $format = 'Y-m-d', string $label = null): self {
+    public function date(string $field, string $format = 'Y-m-d', ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field])) {
             $d = DateTime::createFromFormat($format, $this->data[$field]);
@@ -79,7 +87,7 @@ class Validator {
         return $this;
     }
 
-    public function time(string $field, string $label = null): self {
+    public function time(string $field, ?string $label = null): self {
         $label = $label ?? $field;
         if (isset($this->data[$field])) {
             $pattern = '/^([01]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/';

@@ -1,14 +1,26 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'providers/auth_provider.dart';
 import 'providers/attendance_provider.dart';
+import 'providers/department_head_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/faculty/faculty_home_screen.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/officer/officer_dashboard_screen.dart';
+import 'screens/department_head/department_head_dashboard_screen.dart';
 import 'config/app_config.dart';
+import 'services/offline/offline_initializer.dart';
+import 'services/offline/sync_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize offline-first services (Sqflite, connectivity, sync)
+  if (!kIsWeb) {
+    await OfflineInitializer.initialize();
+  }
+
   runApp(const MyApp());
 }
 
@@ -21,10 +33,15 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AttendanceProvider()),
+        ChangeNotifierProvider(create: (_) => DepartmentHeadProvider()),
+        if (!kIsWeb) ChangeNotifierProvider(create: (_) => SyncService()),
       ],
       child: MaterialApp(
         title: AppConfig.appName,
         debugShowCheckedModeBanner: false,
+        routes: {
+          '/dept-head': (context) => const AuthWrapper(),
+        },
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,
@@ -115,7 +132,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
           return const OfficerDashboardScreen();
         }
 
-        // Faculty or DepartmentHead -> Faculty Home
+        if (user.isDepartmentHead) {
+          return const DepartmentHeadDashboardScreen();
+        }
+
+        // Faculty -> Faculty Home
         return const FacultyHomeScreen();
       },
     );

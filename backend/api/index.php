@@ -14,11 +14,37 @@ $requestUri = $_SERVER['REQUEST_URI'];
 
 // Debug endpoint
 if (strpos($requestUri, 'debug') !== false) {
+    // Compute segments the same way the router does
+    $debugUri = parse_url($requestUri, PHP_URL_PATH);
+    $debugScriptName = $_SERVER['SCRIPT_NAME'];
+    $debugScriptDir = dirname($debugScriptName);
+
+    if (strpos($debugUri, $debugScriptName) === 0) {
+        $debugUri = substr($debugUri, strlen($debugScriptName));
+    } elseif (strpos($debugUri, $debugScriptDir) === 0) {
+        $debugUri = substr($debugUri, strlen($debugScriptDir));
+    }
+
+    $debugUri = trim($debugUri, '/');
+    $debugSegments = ($debugUri !== '') ? explode('/', $debugUri) : [];
+    if (($debugSegments[0] ?? null) === 'api') {
+        $debugSegments = array_slice($debugSegments, 1);
+    }
+    if (($debugSegments[0] ?? null) === 'index.php') {
+        $debugSegments = array_slice($debugSegments, 1);
+    }
+
     header('Content-Type: application/json');
     echo json_encode([
+        'METHOD' => $method,
         'REQUEST_URI' => $requestUri,
         'SCRIPT_NAME' => $_SERVER['SCRIPT_NAME'],
-        'PHP_SELF' => $_SERVER['PHP_SELF'] ?? 'not set'
+        'PHP_SELF' => $_SERVER['PHP_SELF'] ?? 'not set',
+        'SCRIPT_FILENAME' => $_SERVER['SCRIPT_FILENAME'] ?? null,
+        'DOCUMENT_ROOT' => $_SERVER['DOCUMENT_ROOT'] ?? null,
+        'INDEX_PHP_FILE' => __FILE__,
+        'PARSED_PATH' => $debugUri,
+        'SEGMENTS' => $debugSegments
     ]);
     exit;
 }
@@ -44,6 +70,15 @@ $uri = trim($uri, '/');
 // Split URI into segments
 $segments = ($uri !== '') ? explode('/', $uri) : [];
 
+// Normalize segments for environments where SCRIPT_NAME stripping does not remove
+// '/api' or 'index.php' properly (e.g. PHP built-in server path-info variations).
+if (($segments[0] ?? null) === 'api') {
+    $segments = array_slice($segments, 1);
+}
+if (($segments[0] ?? null) === 'index.php') {
+    $segments = array_slice($segments, 1);
+}
+
 // Route the request
 try {
     // Root endpoint - API info
@@ -66,6 +101,34 @@ try {
             Response::notFound('Auth endpoint not found');
         }
     }
+
+    // DepartmentHead routes
+    elseif ($segments[0] === 'department-head') {
+        $controller = new DepartmentHeadController();
+        $resource = $segments[1] ?? null;
+        $action = $segments[2] ?? null;
+        $id = $segments[2] ?? null;
+
+        if ($method === 'GET' && $resource === 'dashboard' && $action === 'summary') {
+            $controller->dashboardSummary();
+        } elseif ($method === 'GET' && $resource === 'analytics') {
+            $controller->analytics();
+        } elseif ($resource === 'faculties' && $method === 'GET') {
+            $controller->facultiesIndex();
+        } elseif ($resource === 'faculties' && $method === 'POST') {
+            $controller->createFaculty();
+        } elseif ($resource === 'schedules' && $method === 'GET') {
+            $controller->schedulesIndex();
+        } elseif ($resource === 'schedules' && $method === 'POST') {
+            $controller->createSchedule();
+        } elseif ($resource === 'schedules' && $method === 'PUT' && $id) {
+            $controller->updateSchedule((int) $id);
+        } elseif ($resource === 'schedules' && $method === 'DELETE' && $id) {
+            $controller->deleteSchedule((int) $id);
+        } else {
+            Response::notFound('DepartmentHead endpoint not found');
+        }
+    }
     
     // Me route (current user profile)
     elseif ($segments[0] === 'me' && $method === 'GET') {
@@ -78,16 +141,18 @@ try {
         $controller = new FacultyController();
         $id = $segments[1] ?? null;
         
-        if ($method === 'GET' && !$id) {
+        if ($method === 'GET' && $id === 'my-department') {
+            $controller->myDepartment();
+        } elseif ($method === 'GET' && !$id) {
             $controller->index();
         } elseif ($method === 'GET' && $id) {
-            $controller->show((int) $id);
+            $controller->show((string) $id);
         } elseif ($method === 'POST') {
             $controller->store();
         } elseif ($method === 'PUT' && $id) {
-            $controller->update((int) $id);
+            $controller->update((string) $id);
         } elseif ($method === 'DELETE' && $id) {
-            $controller->destroy((int) $id);
+            $controller->destroy((string) $id);
         } else {
             Response::notFound('Faculty endpoint not found');
         }
@@ -214,6 +279,8 @@ try {
             $controller->timeOut();
         } elseif ($method === 'POST' && $action === 'qr') {
             $controller->recordByQR();
+        } elseif ($method === 'PUT' && $action === 'update-status') {
+            $controller->updateStatus();
         } else {
             Response::notFound('Attendance endpoint not found');
         }
@@ -226,12 +293,40 @@ try {
         
         if ($method === 'GET' && $action === 'summary') {
             $controller->summary();
+        } elseif ($method === 'GET' && $action === 'daily') {
+            $controller->daily();
+        } elseif ($method === 'GET' && $action === 'date-range') {
+            $controller->dateRange();
+        } elseif ($method === 'GET' && $action === 'faculty-performance') {
+            $controller->facultyPerformance();
+        } elseif ($method === 'GET' && $action === 'room-utilization') {
+            $controller->roomUtilization();
+        } elseif ($method === 'GET' && $action === 'exceptions') {
+            $controller->exceptions();
+        } elseif ($method === 'GET' && $action === 'export-csv') {
+            $controller->exportCsv();
         } elseif ($method === 'GET' && $action === 'department') {
             $controller->department();
         } elseif ($method === 'GET' && $action === 'dashboard') {
             $controller->dashboard();
         } else {
             Response::notFound('Report endpoint not found');
+        }
+    }
+    
+    // Sync routes (offline-first mobile support)
+    elseif ($segments[0] === 'sync') {
+        $controller = new SyncController();
+        $action = $segments[1] ?? null;
+        
+        if ($method === 'POST' && $action === 'push') {
+            $controller->push();
+        } elseif ($method === 'GET' && $action === 'pull') {
+            $controller->pull();
+        } elseif ($method === 'GET' && $action === 'status') {
+            $controller->status();
+        } else {
+            Response::notFound('Sync endpoint not found');
         }
     }
     

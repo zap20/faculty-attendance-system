@@ -5,14 +5,14 @@
  */
 
 class SubjectModel extends BaseModel {
-    protected $table = 'SUBJECTS';
+    protected $table = 'subjects';
     protected $primaryKey = 'SubjectID';
 
     public function findAllWithDepartment(): array {
         $stmt = $this->db->prepare("
             SELECT s.*, d.DepartmentName
-            FROM SUBJECTS s
-            LEFT JOIN DEPARTMENTS d ON s.DepartmentID = d.DepartmentID
+            FROM subjects s
+            LEFT JOIN departments d ON s.DepartmentID = d.DepartmentID
             ORDER BY s.CourseCode
         ");
         $stmt->execute();
@@ -22,8 +22,8 @@ class SubjectModel extends BaseModel {
     public function findByIdWithDepartment(int $subjectId): ?array {
         $stmt = $this->db->prepare("
             SELECT s.*, d.DepartmentName
-            FROM SUBJECTS s
-            LEFT JOIN DEPARTMENTS d ON s.DepartmentID = d.DepartmentID
+            FROM subjects s
+            LEFT JOIN departments d ON s.DepartmentID = d.DepartmentID
             WHERE s.SubjectID = ?
         ");
         $stmt->execute([$subjectId]);
@@ -34,8 +34,8 @@ class SubjectModel extends BaseModel {
     public function findByDepartment(int $departmentId): array {
         $stmt = $this->db->prepare("
             SELECT s.*, d.DepartmentName
-            FROM SUBJECTS s
-            LEFT JOIN DEPARTMENTS d ON s.DepartmentID = d.DepartmentID
+            FROM subjects s
+            LEFT JOIN departments d ON s.DepartmentID = d.DepartmentID
             WHERE s.DepartmentID = ?
             ORDER BY s.CourseCode
         ");
@@ -44,7 +44,7 @@ class SubjectModel extends BaseModel {
     }
 
     public function courseCodeExists(string $courseCode, int $excludeId = null): bool {
-        $sql = "SELECT 1 FROM SUBJECTS WHERE CourseCode = ?";
+        $sql = "SELECT 1 FROM subjects WHERE CourseCode = ?";
         $params = [$courseCode];
         
         if ($excludeId) {

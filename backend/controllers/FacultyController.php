@@ -14,6 +14,22 @@ class FacultyController {
     }
 
     /**
+     * GET /api/faculties/my-department
+     */
+    public function myDepartment(): void {
+        Auth::requireRole(['Faculty', 'DepartmentHead']);
+
+        $user = Auth::getCurrentUser();
+        if (empty($user['DepartmentID'])) {
+            Response::error('User is not linked to any department', 400);
+        }
+
+        $departmentId = (int) $user['DepartmentID'];
+        $faculties = $this->facultyModel->findByDepartment($departmentId);
+        Response::success($faculties);
+    }
+
+    /**
      * GET /api/faculties
      */
     public function index(): void {
@@ -34,7 +50,7 @@ class FacultyController {
     /**
      * GET /api/faculties/{id}
      */
-    public function show(int $id): void {
+    public function show(string $id): void {
         Auth::requireRole(['Admin', 'AttendanceOfficer', 'DepartmentHead', 'Faculty']);
         
         $user = Auth::getCurrentUser();
@@ -76,7 +92,9 @@ class FacultyController {
             Response::error('Department not found', 404);
         }
 
-        $facultyId = $this->facultyModel->create([
+        $facultyId = $this->facultyModel->generateNextFacultyId();
+        $this->facultyModel->createWithId([
+            'FacultyID' => $facultyId,
             'FacultyName' => $data['FacultyName'],
             'DepartmentID' => $data['DepartmentID'],
             'Position' => $data['Position'],
@@ -91,7 +109,7 @@ class FacultyController {
     /**
      * PUT /api/faculties/{id}
      */
-    public function update(int $id): void {
+    public function update(string $id): void {
         Auth::requireRole(['Admin']);
         
         $faculty = $this->facultyModel->findById($id);
@@ -129,7 +147,7 @@ class FacultyController {
     /**
      * DELETE /api/faculties/{id}
      */
-    public function destroy(int $id): void {
+    public function destroy(string $id): void {
         Auth::requireRole(['Admin']);
         
         $faculty = $this->facultyModel->findById($id);

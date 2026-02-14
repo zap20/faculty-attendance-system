@@ -46,13 +46,47 @@ class DepartmentController {
         $validator = new Validator($data ?? []);
         $validator->required('DepartmentName', 'Department name')
                   ->maxLength('DepartmentName', 100, 'Department name')
+                  ->integer('DepartmentDeanID', 'Department dean ID')
+                  ->integer('DepartmentHeadUserID', 'Department head user ID')
                   ->validate();
 
-        $departmentId = $this->departmentModel->create([
+        if (!empty($data['DepartmentDeanID'])) {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare('SELECT 1 FROM department_deans WHERE DepartmentDeanID = ? LIMIT 1');
+            $stmt->execute([(int) $data['DepartmentDeanID']]);
+            if ($stmt->fetch() === false) {
+                Response::error('Department dean not found', 404);
+            }
+        }
+
+        if (!empty($data['DepartmentHeadUserID'])) {
+            $userModel = new UserModel();
+            $headUser = $userModel->findById((int) $data['DepartmentHeadUserID']);
+            if (!$headUser) {
+                Response::error('Department head user not found', 404);
+            }
+            if (($headUser['Role'] ?? null) !== 'DepartmentHead') {
+                Response::error('Selected user is not a DepartmentHead', 400);
+            }
+        }
+
+        $createData = [
             'DepartmentName' => $data['DepartmentName'],
-            'DepartmentHead' => $data['DepartmentHead'] ?? null,
-            'DepartmentDean' => $data['DepartmentDean'] ?? null
-        ]);
+            'DepartmentDeanID' => $data['DepartmentDeanID'] ?? null
+        ];
+
+        if (!empty($data['DepartmentHeadUserID'])) {
+            $createData['DepartmentHeadUserID'] = (int) $data['DepartmentHeadUserID'];
+        }
+
+        try {
+            $departmentId = $this->departmentModel->create($createData);
+        } catch (PDOException $e) {
+            if (!empty($data['DepartmentHeadUserID'])) {
+                Response::error('Database not updated for DepartmentHead linking. Please run database/add_department_head_userid.sql', 500);
+            }
+            Response::error('Failed to create department', 500);
+        }
 
         $department = $this->departmentModel->findById($departmentId);
         Response::success($department, 'Department created successfully', 201);
@@ -74,13 +108,50 @@ class DepartmentController {
         $validator = new Validator($data ?? []);
         $validator->required('DepartmentName', 'Department name')
                   ->maxLength('DepartmentName', 100, 'Department name')
+                  ->integer('DepartmentDeanID', 'Department dean ID')
+                  ->integer('DepartmentHeadUserID', 'Department head user ID')
                   ->validate();
 
-        $this->departmentModel->update($id, [
+        if (!empty($data['DepartmentDeanID'])) {
+            $db = Database::getInstance()->getConnection();
+            $stmt = $db->prepare('SELECT 1 FROM department_deans WHERE DepartmentDeanID = ? LIMIT 1');
+            $stmt->execute([(int) $data['DepartmentDeanID']]);
+            if ($stmt->fetch() === false) {
+                Response::error('Department dean not found', 404);
+            }
+        }
+
+        if (!empty($data['DepartmentHeadUserID'])) {
+            $userModel = new UserModel();
+            $headUser = $userModel->findById((int) $data['DepartmentHeadUserID']);
+            if (!$headUser) {
+                Response::error('Department head user not found', 404);
+            }
+            if (($headUser['Role'] ?? null) !== 'DepartmentHead') {
+                Response::error('Selected user is not a DepartmentHead', 400);
+            }
+        }
+
+        $updateData = [
             'DepartmentName' => $data['DepartmentName'],
-            'DepartmentHead' => $data['DepartmentHead'] ?? null,
-            'DepartmentDean' => $data['DepartmentDean'] ?? null
-        ]);
+            'DepartmentDeanID' => $data['DepartmentDeanID'] ?? null
+        ];
+
+        $hasHeadField = array_key_exists('DepartmentHeadUserID', $data ?? []);
+        if ($hasHeadField) {
+            $updateData['DepartmentHeadUserID'] = !empty($data['DepartmentHeadUserID'])
+                ? (int) $data['DepartmentHeadUserID']
+                : null;
+        }
+
+        try {
+            $this->departmentModel->update($id, $updateData);
+        } catch (PDOException $e) {
+            if ($hasHeadField) {
+                Response::error('Database not updated for DepartmentHead linking. Please run database/add_department_head_userid.sql', 500);
+            }
+            Response::error('Failed to update department', 500);
+        }
 
         $updatedDepartment = $this->departmentModel->findById($id);
         Response::success($updatedDepartment, 'Department updated successfully');

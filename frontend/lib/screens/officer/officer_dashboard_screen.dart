@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:math' as math;
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:intl/intl.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/data_service.dart';
-import '../../services/api_service.dart';
+import '../../services/offline/repository_provider.dart';
 import '../../models/attendance_model.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/sync_status_widget.dart';
+import '../shared/reports_screen.dart';
 
 class OfficerDashboardScreen extends StatefulWidget {
   const OfficerDashboardScreen({super.key});
@@ -35,6 +38,7 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
+          if (!kIsWeb) const SyncStatusWidget(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Center(
@@ -71,7 +75,7 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
       case 'officer_today':
         return const TodayAttendanceView();
       case 'officer_reports':
-        return const AttendanceReportsView();
+        return const ReportsScreen();
       default:
         return const QRScannerView();
     }
@@ -156,25 +160,19 @@ class _QRScannerViewState extends State<QRScannerView> {
       final currentDayOfWeek = dayMap[now.weekday] ?? '';
       final currentDate = now.toIso8601String().split('T')[0];
       
-      final result = await DataService.recordAttendanceByQR(code);
+      // Use offline-first repository for QR attendance
+      final repo = RepositoryProvider();
+      final result = await repo.smartExecute(
+        (r) => r.recordByQR(qrCode: code),
+        operationName: 'QRAttendance',
+      );
 
-      final responseData = result['data'];
-      final String? action = responseData is Map<String, dynamic>
-          ? (responseData['action'] as String?)
-          : null;
-      final bool isNoSchedule = action == 'no_schedule';
-      final bool inserted = responseData is Map<String, dynamic>
-          ? (responseData['inserted'] != false)
-          : true;
-
-      final String message = (isNoSchedule && responseData is Map<String, dynamic>)
-          ? ((responseData['message'] as String?) ?? 'No schedule found')
-          : (result['message'] ?? 'Attendance recorded successfully');
+      final bool inserted = result['success'] == true;
       
       setState(() {
         _lastResult = {
-          'success': result['success'] == true,
-          'message': message,
+          'success': inserted,
+          'message': result['message'] ?? 'Attendance recorded successfully',
           'data': result['data'],
           'scan_info': {
             'day_of_week': currentDayOfWeek,
@@ -187,7 +185,7 @@ class _QRScannerViewState extends State<QRScannerView> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(message),
+            content: Text(result['message'] ?? 'Attendance recorded!'),
             backgroundColor: inserted ? Colors.green : Colors.orange,
           ),
         );
@@ -633,11 +631,33 @@ class TodayAttendanceView extends StatefulWidget {
 
 class _TodayAttendanceViewState extends State<TodayAttendanceView> {
   Map<String, List<AttendanceModel>> _weeklyAttendance = {};
+  final Map<int, TransformationController> _zoomControllers = {};
+  String? _selectedRoom;
+  String? _selectedBuilding;
   
   @override
   void initState() {
     super.initState();
     _loadWeeklyAttendance();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _zoomControllers.values) {
+      c.dispose();
+    }
+    _zoomControllers.clear();
+    super.dispose();
+  }
+
+  void _applyZoom(int roomId, double factor) {
+    final controller = _zoomControllers[roomId];
+    if (controller == null) return;
+
+    final currentScale = controller.value.getMaxScaleOnAxis();
+    final nextScale = (currentScale * factor).clamp(0.6, 3.0);
+    final delta = nextScale / currentScale;
+    controller.value = controller.value.clone()..scale(delta);
   }
 
   Future<void> _loadWeeklyAttendance() async {
@@ -652,16 +672,12 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
       final dateStr = date.toIso8601String().split('T')[0];
       
       try {
-        final response = await ApiService.get('/attendance', queryParams: {'date': dateStr});
-        
-        if (response['success'] == true && response['data'] != null) {
-          final attendances = (response['data'] as List)
-              .map((json) => AttendanceModel.fromJson(json))
-              .toList();
-          weeklyAttendance[dateStr] = attendances;
-        } else {
-          weeklyAttendance[dateStr] = [];
-        }
+        final repo = RepositoryProvider();
+        final attendances = await repo.smartExecute(
+          (r) => r.getAttendanceHistory(from: dateStr, to: dateStr),
+          operationName: 'WeeklyAttendance',
+        );
+        weeklyAttendance[dateStr] = attendances;
       } catch (e) {
         weeklyAttendance[dateStr] = [];
       }
@@ -740,13 +756,22 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
     return time;
   }
 
+  Future<List<dynamic>> _safeLoadSchedulesAndRooms() async {
+    try {
+      return await Future.wait([
+        DataService.getSchedules(),
+        DataService.getRooms(),
+      ]);
+    } catch (e) {
+      debugPrint('[OfficerDashboard] Failed to load schedules/rooms: $e');
+      return [<dynamic>[], <dynamic>[]];
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<dynamic>>(
-      future: Future.wait([
-        DataService.getSchedules(),
-        DataService.getRooms(),
-      ]),
+      future: _safeLoadSchedulesAndRooms(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -775,9 +800,26 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
         final isMobile = !kIsWeb && MediaQuery.of(context).size.width < 600;
         final headerPadding = EdgeInsets.all(isMobile ? 12 : 16);
 
+        // Extract unique buildings and room names for filters
+        final buildings = <String>{};
+        final roomNames = <String>{};
+        for (var room in rooms) {
+          if (room.building != null && room.building.toString().isNotEmpty) {
+            buildings.add(room.building.toString());
+          }
+          if (room.roomName != null && room.roomName.toString().isNotEmpty) {
+            roomNames.add(room.roomName.toString());
+          }
+        }
+
         // Group schedules by room
         final Map<int, Map<String, dynamic>> schedulesByRoom = {};
         for (var room in rooms) {
+          // Apply building filter
+          if (_selectedBuilding != null && room.building.toString() != _selectedBuilding) continue;
+          // Apply room filter
+          if (_selectedRoom != null && room.roomName.toString() != _selectedRoom) continue;
+
           schedulesByRoom[room.roomId] = {
             'room': room,
             'Monday': <dynamic>[],
@@ -818,9 +860,72 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
                   Text(today, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   Text(
-                    'Weekly Schedule View',
+                    'Weekly Schedule View — Tap a schedule to edit',
                     style: TextStyle(color: Colors.grey[700]),
                   ),
+                ],
+              ),
+            ),
+            // Filter bar
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: Colors.grey.shade100,
+              child: Row(
+                children: [
+                  const Icon(Icons.filter_list, size: 18),
+                  const SizedBox(width: 8),
+                  // Building filter
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedBuilding,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Building',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(value: null, child: Text('All Buildings')),
+                        ...buildings.map((b) => DropdownMenuItem(value: b, child: Text(b, overflow: TextOverflow.ellipsis))),
+                      ],
+                      onChanged: (v) => setState(() {
+                        _selectedBuilding = v;
+                        _selectedRoom = null;
+                      }),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Room filter
+                  Expanded(
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedRoom,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Room',
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<String>(value: null, child: Text('All Rooms')),
+                        ...rooms
+                            .where((r) => _selectedBuilding == null || r.building.toString() == _selectedBuilding)
+                            .map((r) => DropdownMenuItem(value: r.roomName.toString(), child: Text(r.roomName.toString(), overflow: TextOverflow.ellipsis))),
+                      ],
+                      onChanged: (v) => setState(() => _selectedRoom = v),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (_selectedBuilding != null || _selectedRoom != null)
+                    IconButton(
+                      icon: const Icon(Icons.clear, size: 18),
+                      tooltip: 'Clear filters',
+                      onPressed: () => setState(() {
+                        _selectedBuilding = null;
+                        _selectedRoom = null;
+                      }),
+                    ),
                 ],
               ),
             ),
@@ -835,22 +940,81 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
     );
   }
 
-  Widget _buildZoomableScheduleGrid(BuildContext context, Map<String, dynamic> roomData) {
+  Widget _buildZoomableScheduleGrid(BuildContext context, int roomId, Map<String, dynamic> roomData) {
     final isMobile = !kIsWeb && MediaQuery.of(context).size.width < 600;
     final initialScale = isMobile ? 0.85 : 1.0;
-    final controller = TransformationController(
-      Matrix4.identity()..scale(initialScale),
+    final viewportWidth = MediaQuery.of(context).size.width;
+    const dayCount = 6;
+    const timeColWidth = 60.0;
+    const gapWidth = 4.0;
+    final minTableWidth = timeColWidth + gapWidth + (dayCount * 200.0);
+    final tableWidth = math.max(viewportWidth, minTableWidth);
+
+    const cellHeight = 30.0;
+    const rowGap = 2.0;
+    final timeSlots = _generateTimeSlots();
+    final gridHeight = (timeSlots.length * (cellHeight + rowGap)) - rowGap;
+    const headerHeightEstimate = 44.0;
+    final viewerHeight = gridHeight + headerHeightEstimate;
+    final controller = _zoomControllers.putIfAbsent(
+      roomId,
+      () => TransformationController(Matrix4.identity()..scale(initialScale)),
     );
 
-    return ClipRect(
-      child: InteractiveViewer(
-        transformationController: controller,
-        panEnabled: true,
-        scaleEnabled: true,
-        minScale: 0.6,
-        maxScale: 3.0,
-        boundaryMargin: const EdgeInsets.all(120),
-        child: _buildTimeGridSchedule(roomData),
+    return SizedBox(
+      width: double.infinity,
+      height: viewerHeight,
+      child: ClipRect(
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              transformationController: controller,
+              constrained: false,
+              alignment: Alignment.topLeft,
+              panEnabled: true,
+              scaleEnabled: true,
+              minScale: 0.6,
+              maxScale: 3.0,
+              boundaryMargin: const EdgeInsets.all(120),
+              child: SizedBox(
+                width: tableWidth,
+                child: _buildTimeGridSchedule(roomData),
+              ),
+            ),
+            Positioned(
+              right: 8,
+              bottom: 8,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Material(
+                    color: Colors.white.withOpacity(0.9),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      iconSize: 18,
+                      onPressed: () => _applyZoom(roomId, 1.2),
+                      icon: const Icon(Icons.add),
+                      tooltip: 'Zoom in',
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Material(
+                    color: Colors.white.withOpacity(0.9),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      visualDensity: VisualDensity.compact,
+                      iconSize: 18,
+                      onPressed: () => _applyZoom(roomId, 1 / 1.2),
+                      icon: const Icon(Icons.remove),
+                      tooltip: 'Zoom out',
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -944,7 +1108,7 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
                   // Time-based schedule grid
                   Padding(
                     padding: EdgeInsets.all(isMobile ? 8 : 16),
-                    child: _buildZoomableScheduleGrid(context, roomData),
+                    child: _buildZoomableScheduleGrid(context, entry.key, roomData),
                   ),
                 ],
               ),
@@ -1175,13 +1339,167 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
     );
   }
 
+  void _showEditAttendanceDialog(Map<String, dynamic> scheduleData, String dayOfWeek) {
+    final schedule = scheduleData['schedule'];
+    String facultyId = '';
+    String facultyName = scheduleData['facultyName'] as String? ?? '';
+    String courseCode = scheduleData['courseCode'] as String? ?? '';
+    String subjectName = scheduleData['subjectName'] as String? ?? '';
+    int? scheduleId;
+
+    if (schedule is Map<String, dynamic>) {
+      facultyId = schedule['FacultyID']?.toString() ?? schedule['facultyId']?.toString() ?? '';
+      scheduleId = schedule['ScheduleID'] ?? schedule['scheduleId'];
+    } else if (schedule != null) {
+      facultyId = schedule.facultyId?.toString() ?? '';
+      scheduleId = schedule.scheduleId;
+    }
+
+    final now = DateTime.now();
+    final startOfWeek = _getStartOfWeek(now);
+    final dayMap = {'Monday': 0, 'Tuesday': 1, 'Wednesday': 2, 'Thursday': 3, 'Friday': 4, 'Saturday': 5, 'Sunday': 6};
+    final dayOffset = dayMap[dayOfWeek] ?? 0;
+    final targetDate = startOfWeek.add(Duration(days: dayOffset));
+    final dateStr = targetDate.toIso8601String().split('T')[0];
+
+    final attendance = _getAttendanceForSchedule(facultyId, dateStr, courseCode, dayOfWeek, scheduleId);
+    final hasTimeIn = attendance?.timeIn != null;
+    final hasTimeOut = attendance?.timeOut != null;
+
+    final remarksController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit Attendance'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Faculty: $facultyName', style: const TextStyle(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Text('Subject: $subjectName ($courseCode)'),
+              Text('Day: $dayOfWeek'),
+              Text('Date: $dateStr'),
+              Text('Time: ${scheduleData['startTime']} - ${scheduleData['endTime']}'),
+              const SizedBox(height: 8),
+              if (attendance != null) ...[
+                Text('Status: ${attendance.attendanceStatus}', style: TextStyle(color: Colors.blue.shade700, fontWeight: FontWeight.bold)),
+                Text('Time In: ${_formatTime(attendance.timeIn)}'),
+                Text('Time Out: ${_formatTime(attendance.timeOut)}'),
+              ] else
+                const Text('No attendance record yet', style: TextStyle(color: Colors.grey)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: remarksController,
+                decoration: const InputDecoration(
+                  labelText: 'Remarks (optional)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          // Mark Absent
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            icon: const Icon(Icons.person_off, size: 16),
+            label: const Text('Mark Absent'),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _updateAttendanceStatus(
+                action: 'absent',
+                facultyId: facultyId,
+                date: dateStr,
+                scheduleId: scheduleId,
+                remarks: remarksController.text.isNotEmpty ? remarksController.text : null,
+              );
+            },
+          ),
+          // Early Out (only if has TimeIn and no TimeOut)
+          if (hasTimeIn && !hasTimeOut)
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+              icon: const Icon(Icons.exit_to_app, size: 16),
+              label: const Text('Early Out'),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _updateAttendanceStatus(
+                  action: 'early_out',
+                  facultyId: facultyId,
+                  date: dateStr,
+                  scheduleId: scheduleId,
+                  remarks: remarksController.text.isNotEmpty ? remarksController.text : null,
+                );
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateAttendanceStatus({
+    required String action,
+    required String facultyId,
+    required String date,
+    int? scheduleId,
+    String? remarks,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'action': action,
+        'facultyId': facultyId,
+        'date': date,
+      };
+      if (scheduleId != null) body['scheduleId'] = scheduleId;
+      if (remarks != null) body['remarks'] = remarks;
+
+      final repo = RepositoryProvider();
+      await repo.smartExecute(
+        (r) => r.updateAttendanceStatus(
+          action: action,
+          facultyId: facultyId,
+          date: date,
+          scheduleId: scheduleId,
+          remarks: remarks,
+        ),
+        operationName: 'UpdateStatus',
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(action == 'absent' ? 'Marked as absent' : 'Early out recorded'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      // Reload attendance data
+      _loadWeeklyAttendance();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
   Widget _buildScheduleBlock(Map<String, dynamic> scheduleData, String dayOfWeek) {
     final startTime = scheduleData['startTime'] as String;
     final endTime = scheduleData['endTime'] as String;
     final scheduleStartMinutes = _parseHour(startTime) * 60 + _parseMinute(startTime);
     final scheduleEndMinutes = _parseHour(endTime) * 60 + _parseMinute(endTime);
 
-    return Container(
+    return GestureDetector(
+      onTap: () => _showEditAttendanceDialog(scheduleData, dayOfWeek),
+      child: Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -1538,6 +1856,7 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -1780,7 +2099,7 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
                                 }
 
                                 final hasTimeIn = attendance != null && timeInMinutes != null;
-                                final isLate = hasTimeIn && timeInMinutes >= (scheduleStartMinutes + 30);
+                                final isLate = hasTimeIn && timeInMinutes! >= (scheduleStartMinutes + 30);
                                 final isPresent = hasTimeIn && !isLate;
 
                                 final hasAnyScan = attendance != null && (attendance.timeIn != null || attendance.timeOut != null);
@@ -2165,6 +2484,15 @@ class _AttendanceReportsViewState extends State<AttendanceReportsView> {
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 7));
   DateTime _endDate = DateTime.now();
 
+  Future<Map<String, dynamic>> _safeLoadReport(DateTime start, DateTime end) async {
+    try {
+      return await DataService.getAttendanceReport(start, end);
+    } catch (e) {
+      debugPrint('[OfficerDashboard] Failed to load report: $e');
+      return {'summary': {}, 'records': []};
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -2206,7 +2534,7 @@ class _AttendanceReportsViewState extends State<AttendanceReportsView> {
         ),
         Expanded(
           child: FutureBuilder<Map<String, dynamic>>(
-            future: DataService.getAttendanceReport(_startDate, _endDate),
+            future: _safeLoadReport(_startDate, _endDate),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());

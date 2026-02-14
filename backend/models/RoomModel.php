@@ -5,14 +5,14 @@
  */
 
 class RoomModel extends BaseModel {
-    protected $table = 'ROOMS';
+    protected $table = 'rooms';
     protected $primaryKey = 'RoomID';
 
     public function findAllWithDeviceCount(): array {
         $stmt = $this->db->prepare("
             SELECT r.*, COUNT(d.DeviceID) as DeviceCount
-            FROM ROOMS r
-            LEFT JOIN ATTENDANCEDEVICES d ON r.RoomID = d.RoomID
+            FROM rooms r
+            LEFT JOIN attendancedevices d ON r.RoomID = d.RoomID
             GROUP BY r.RoomID
             ORDER BY r.Building, r.RoomName
         ");
@@ -21,13 +21,13 @@ class RoomModel extends BaseModel {
     }
 
     public function hasSchedules(int $roomId): bool {
-        $stmt = $this->db->prepare("SELECT 1 FROM SCHEDULES WHERE RoomID = ? LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1 FROM schedules WHERE RoomID = ? LIMIT 1");
         $stmt->execute([$roomId]);
         return $stmt->fetch() !== false;
     }
 
     public function hasDevices(int $roomId): bool {
-        $stmt = $this->db->prepare("SELECT 1 FROM ATTENDANCEDEVICES WHERE RoomID = ? LIMIT 1");
+        $stmt = $this->db->prepare("SELECT 1 FROM attendancedevices WHERE RoomID = ? LIMIT 1");
         $stmt->execute([$roomId]);
         return $stmt->fetch() !== false;
     }

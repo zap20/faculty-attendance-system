@@ -5,8 +5,34 @@
  */
 
 class ScheduleModel extends BaseModel {
-    protected $table = 'SCHEDULES';
+    protected $table = 'schedules';
     protected $primaryKey = 'ScheduleID';
+
+    public function findByDepartment(int $departmentId, ?string $facultyId = null): array {
+        $sql = "
+            SELECT s.*, 
+                   f.FacultyName, 
+                   sub.SubjectName, sub.CourseCode,
+                   r.RoomName, r.Building
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            JOIN rooms r ON s.RoomID = r.RoomID
+            WHERE f.DepartmentID = ?
+        ";
+        $params = [$departmentId];
+
+        if ($facultyId !== null && $facultyId !== '') {
+            $sql .= " AND s.FacultyID = ?";
+            $params[] = $facultyId;
+        }
+
+        $sql .= " ORDER BY FIELD(s.DayOfWeek, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'), s.StartTime";
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
 
     public function findAllWithDetails(): array {
         $stmt = $this->db->prepare("
@@ -14,10 +40,10 @@ class ScheduleModel extends BaseModel {
                    f.FacultyName, 
                    sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            JOIN rooms r ON s.RoomID = r.RoomID
             ORDER BY s.DayOfWeek, s.StartTime
         ");
         $stmt->execute();
@@ -30,10 +56,10 @@ class ScheduleModel extends BaseModel {
                    f.FacultyName, 
                    sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            JOIN rooms r ON s.RoomID = r.RoomID
             WHERE s.ScheduleID = ?
         ");
         $stmt->execute([$scheduleId]);
@@ -47,15 +73,35 @@ class ScheduleModel extends BaseModel {
                    f.FacultyName, 
                    sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            JOIN rooms r ON s.RoomID = r.RoomID
             WHERE s.FacultyID = ?
             ORDER BY FIELD(s.DayOfWeek, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'), s.StartTime
         ");
         $stmt->execute([$facultyId]);
         return $stmt->fetchAll();
+    }
+
+    public function countScheduledFaculty(string $dayOfWeek, $departmentId = null): int {
+        $sql = "
+            SELECT COUNT(DISTINCT s.FacultyID) as cnt
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            WHERE s.DayOfWeek = ?
+        ";
+        $params = [$dayOfWeek];
+
+        if ($departmentId) {
+            $sql .= " AND f.DepartmentID = ?";
+            $params[] = $departmentId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch();
+        return (int) ($row['cnt'] ?? 0);
     }
 
     public function findByFacultyAndDay($facultyId, string $dayOfWeek): array {
@@ -64,10 +110,10 @@ class ScheduleModel extends BaseModel {
                    f.FacultyName, 
                    sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            JOIN rooms r ON s.RoomID = r.RoomID
             WHERE s.FacultyID = ? AND s.DayOfWeek = ?
             ORDER BY s.StartTime
         ");
@@ -84,10 +130,10 @@ class ScheduleModel extends BaseModel {
                    f.FacultyName, 
                    sub.SubjectName, sub.CourseCode,
                    r.RoomName, r.Building
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN SUBJECTS sub ON s.SubjectID = sub.SubjectID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN subjects sub ON s.SubjectID = sub.SubjectID
+            JOIN rooms r ON s.RoomID = r.RoomID
             WHERE s.FacultyID = ? 
               AND s.DayOfWeek = ?
               AND s.StartTime <= ?
@@ -110,9 +156,9 @@ class ScheduleModel extends BaseModel {
         // Check faculty conflict (same faculty, same day, overlapping time)
         $sql = "
             SELECT s.*, f.FacultyName, r.RoomName
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN rooms r ON s.RoomID = r.RoomID
             WHERE s.FacultyID = ? 
               AND s.DayOfWeek = ?
               AND ((s.StartTime < ? AND s.EndTime > ?) OR (s.StartTime < ? AND s.EndTime > ?) OR (s.StartTime >= ? AND s.EndTime <= ?))
@@ -138,9 +184,9 @@ class ScheduleModel extends BaseModel {
         // Check room conflict (same room, same day, overlapping time)
         $sql = "
             SELECT s.*, f.FacultyName, r.RoomName
-            FROM SCHEDULES s
-            JOIN FACULTIES f ON s.FacultyID = f.FacultyID
-            JOIN ROOMS r ON s.RoomID = r.RoomID
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            JOIN rooms r ON s.RoomID = r.RoomID
             WHERE s.RoomID = ? 
               AND s.DayOfWeek = ?
               AND ((s.StartTime < ? AND s.EndTime > ?) OR (s.StartTime < ? AND s.EndTime > ?) OR (s.StartTime >= ? AND s.EndTime <= ?))

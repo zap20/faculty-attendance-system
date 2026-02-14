@@ -6,6 +6,7 @@ import '../../providers/attendance_provider.dart';
 import '../../models/models.dart';
 import '../../services/data_service.dart';
 import '../../widgets/app_drawer.dart';
+import '../../widgets/sync_status_widget.dart';
 
 class FacultyHomeScreen extends StatefulWidget {
   const FacultyHomeScreen({super.key});
@@ -39,7 +40,9 @@ class _FacultyHomeScreenState extends State<FacultyHomeScreen> {
         _loadingDevices = false;
       });
     } catch (e) {
+      // Device list not available offline
       setState(() {
+        _devices = [];
         _loadingDevices = false;
       });
     }
@@ -143,7 +146,7 @@ class _FacultyHomeScreenState extends State<FacultyHomeScreen> {
                       const Center(child: CircularProgressIndicator())
                     else
                       DropdownButtonFormField<DeviceModel>(
-                        initialValue: _selectedDevice,
+                        value: _selectedDevice,
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           hintText: 'Select attendance device',
@@ -362,6 +365,7 @@ class _FacultyHomeScreenState extends State<FacultyHomeScreen> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
+          const SyncStatusWidget(),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
