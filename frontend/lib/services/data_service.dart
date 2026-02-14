@@ -14,8 +14,11 @@ class DataService {
     String name, {
     Future<List<T>> Function()? offlineFallback,
   }) async {
+    // On web, sqflite is not available — skip offline fallback entirely
+    final canUseOffline = !kIsWeb && offlineFallback != null;
+
     // If offline, go straight to local DB
-    if (!_network.isOnline && offlineFallback != null) {
+    if (!_network.isOnline && canUseOffline) {
       debugPrint('[DataService] $name: OFFLINE — reading from Sqflite');
       try {
         return await offlineFallback();
@@ -29,8 +32,8 @@ class DataService {
       return await apiFetcher();
     } catch (e) {
       debugPrint('[DataService] $name API failed: $e');
-      // Try local DB fallback
-      if (offlineFallback != null) {
+      // Try local DB fallback (only on mobile)
+      if (canUseOffline) {
         debugPrint('[DataService] $name: falling back to Sqflite');
         try {
           return await offlineFallback();
@@ -48,7 +51,9 @@ class DataService {
     String name, {
     Future<Map<String, dynamic>> Function()? offlineFallback,
   }) async {
-    if (!_network.isOnline && offlineFallback != null) {
+    final canUseOffline = !kIsWeb && offlineFallback != null;
+
+    if (!_network.isOnline && canUseOffline) {
       debugPrint('[DataService] $name: OFFLINE — reading from Sqflite');
       try {
         return await offlineFallback();
@@ -62,7 +67,7 @@ class DataService {
       return await apiFetcher();
     } catch (e) {
       debugPrint('[DataService] $name API failed: $e');
-      if (offlineFallback != null) {
+      if (canUseOffline) {
         debugPrint('[DataService] $name: falling back to Sqflite');
         try {
           return await offlineFallback();

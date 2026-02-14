@@ -12,7 +12,7 @@ class NetworkService {
   final Connectivity _connectivity = Connectivity();
   final StreamController<bool> _connectionController = StreamController<bool>.broadcast();
 
-  bool _isOnline = false;
+  bool _isOnline = kIsWeb; // Default to online on web (no sqflite fallback)
   bool _initialized = false;
 
   /// Stream of connectivity changes (true = online, false = offline)

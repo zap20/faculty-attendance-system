@@ -112,6 +112,12 @@ class AuthProvider with ChangeNotifier {
 
   // Offline login using locally stored credentials
   Future<bool> _offlineLogin(String username, String password) async {
+    if (kIsWeb) {
+      _error = 'Cannot login offline on web. Please check your internet connection.';
+      _status = AuthStatus.unauthenticated;
+      notifyListeners();
+      return false;
+    }
     try {
       final db = DatabaseHelper();
       final database = await db.database;
@@ -183,6 +189,7 @@ class AuthProvider with ChangeNotifier {
 
   // Save credentials locally for offline login
   Future<void> _saveLocalCredentials(String username, String password, UserModel user) async {
+    if (kIsWeb) return; // sqflite not available on web
     try {
       final db = DatabaseHelper();
       final database = await db.database;

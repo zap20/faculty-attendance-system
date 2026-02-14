@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
 import 'package:sqflite/sqflite.dart';
@@ -78,8 +79,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
       }
 
       final network = NetworkService();
-      if (!network.isOnline) {
-        // Go straight to offline
+      if (!network.isOnline && !kIsWeb) {
+        // Go straight to offline (sqflite not available on web)
         final data = await _generateOfflineReport();
         setState(() => _reportData = data);
         return;
@@ -90,12 +91,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
         _reportData = (response['data'] as Map<String, dynamic>?) ?? {};
       });
     } catch (e) {
-      // API failed — try offline fallback
-      try {
-        final data = await _generateOfflineReport();
-        setState(() => _reportData = data);
-      } catch (e2) {
-        setState(() => _error = 'Failed to generate report: $e2');
+      // API failed — try offline fallback (only on mobile, sqflite not available on web)
+      if (!kIsWeb) {
+        try {
+          final data = await _generateOfflineReport();
+          setState(() => _reportData = data);
+        } catch (e2) {
+          setState(() => _error = 'Failed to generate report: $e2');
+        }
+      } else {
+        setState(() => _error = 'Failed to load report: $e');
       }
     } finally {
       setState(() => _loading = false);
