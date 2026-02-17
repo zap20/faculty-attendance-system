@@ -11,6 +11,7 @@ import '../../models/attendance_model.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/sync_status_widget.dart';
 import '../shared/reports_screen.dart';
+import '../../widgets/auto_refresh_mixin.dart';
 
 class OfficerDashboardScreen extends StatefulWidget {
   const OfficerDashboardScreen({super.key});
@@ -629,7 +630,7 @@ class TodayAttendanceView extends StatefulWidget {
   State<TodayAttendanceView> createState() => _TodayAttendanceViewState();
 }
 
-class _TodayAttendanceViewState extends State<TodayAttendanceView> {
+class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefreshMixin {
   Map<String, List<AttendanceModel>> _weeklyAttendance = {};
   final Map<int, TransformationController> _zoomControllers = {};
   String? _selectedRoom;
@@ -639,10 +640,12 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> {
   void initState() {
     super.initState();
     _loadWeeklyAttendance();
+    startAutoRefresh(_loadWeeklyAttendance);
   }
 
   @override
   void dispose() {
+    stopAutoRefresh();
     for (final c in _zoomControllers.values) {
       c.dispose();
     }

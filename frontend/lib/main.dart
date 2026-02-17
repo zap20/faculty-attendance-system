@@ -5,7 +5,7 @@ import 'providers/auth_provider.dart';
 import 'providers/attendance_provider.dart';
 import 'providers/department_head_provider.dart';
 import 'screens/login_screen.dart';
-import 'screens/faculty/faculty_home_screen.dart';
+import 'screens/faculty/faculty_dashboard_screen.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/officer/officer_dashboard_screen.dart';
 import 'screens/department_head/department_head_dashboard_screen.dart';
@@ -136,8 +136,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
           return const DepartmentHeadDashboardScreen();
         }
 
-        // Faculty -> Faculty Home
-        return const FacultyHomeScreen();
+        // Faculty -> Faculty Dashboard
+        return const FacultyDashboardScreen();
       },
     );
   }

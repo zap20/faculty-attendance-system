@@ -11,6 +11,7 @@ import '../../services/data_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/sync_status_widget.dart';
 import '../shared/reports_screen.dart';
+import '../../widgets/auto_refresh_mixin.dart';
 
 class DepartmentHeadDashboardScreen extends StatefulWidget {
   const DepartmentHeadDashboardScreen({super.key});
@@ -19,7 +20,7 @@ class DepartmentHeadDashboardScreen extends StatefulWidget {
   State<DepartmentHeadDashboardScreen> createState() => _DepartmentHeadDashboardScreenState();
 }
 
-class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardScreen> {
+class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardScreen> with AutoRefreshMixin {
   String _currentScreen = 'dept_head_dashboard';
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
@@ -27,31 +28,41 @@ class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardS
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final provider = context.read<DepartmentHeadProvider>();
-      await Future.wait([
-        provider.loadDashboardSummary().catchError((e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Dashboard load failed: $e'), backgroundColor: Colors.red),
-            );
-          }
-        }),
-        provider.loadFaculties().catchError((e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Faculty load failed: $e'), backgroundColor: Colors.red),
-            );
-          }
-        }),
-        provider.loadSchedules().catchError((e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Schedules load failed: $e'), backgroundColor: Colors.red),
-            );
-          }
-        }),
-      ]);
+      await _loadAllData();
+      startAutoRefresh(() => _silentRefresh());
     });
+  }
+
+  Future<void> _loadAllData() async {
+    final provider = context.read<DepartmentHeadProvider>();
+    await Future.wait([
+      provider.loadDashboardSummary().catchError((e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Dashboard load failed: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }),
+      provider.loadFaculties().catchError((e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Faculty load failed: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }),
+      provider.loadSchedules().catchError((e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Schedules load failed: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }),
+    ]);
+  }
+
+  void _silentRefresh() {
+    final provider = context.read<DepartmentHeadProvider>();
+    provider.loadDashboardSummary().catchError((_) {});
   }
 
   void _handleDrawerSelection(String selection) {
@@ -74,8 +85,6 @@ class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardS
         return 'Faculty Management';
       case 'dept_head_schedules':
         return 'Schedule Management';
-      case 'dept_head_analytics':
-        return 'Attendance Analytics';
       case 'dept_head_reports':
         return 'Reports';
       default:
@@ -143,8 +152,6 @@ class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardS
         return const _DepartmentHeadFacultyView();
       case 'dept_head_schedules':
         return const _DepartmentHeadSchedulesView();
-      case 'dept_head_analytics':
-        return const _DepartmentHeadAnalyticsView();
       case 'dept_head_reports':
         return const ReportsScreen();
       default:
@@ -153,8 +160,46 @@ class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardS
   }
 }
 
-class _DepartmentHeadOverviewView extends StatelessWidget {
+class _DepartmentHeadOverviewView extends StatefulWidget {
   const _DepartmentHeadOverviewView();
+
+  @override
+  State<_DepartmentHeadOverviewView> createState() => _DepartmentHeadOverviewViewState();
+}
+
+class _DepartmentHeadOverviewViewState extends State<_DepartmentHeadOverviewView> {
+  late DateTime _fromDate;
+  late DateTime _toDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _toDate = DateTime.now();
+    _fromDate = _toDate.subtract(const Duration(days: 30));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
+  }
+
+  void _loadData() {
+    final from = DateFormat('yyyy-MM-dd').format(_fromDate);
+    final to = DateFormat('yyyy-MM-dd').format(_toDate);
+    context.read<DepartmentHeadProvider>().loadAnalytics(from: from, to: to);
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2024),
+      lastDate: DateTime.now(),
+      initialDateRange: DateTimeRange(start: _fromDate, end: _toDate),
+    );
+    if (picked != null) {
+      setState(() {
+        _fromDate = picked.start;
+        _toDate = picked.end;
+      });
+      _loadData();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -165,16 +210,7 @@ class _DepartmentHeadOverviewView extends StatelessWidget {
     }
 
     final kpis = provider.dashboardSummary['kpis'] ?? {};
-    final breakdown = (provider.dashboardSummary['statusBreakdownToday'] as List?) ?? [];
     final date = provider.dashboardSummary['date'] ?? DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-    final sections = breakdown.map((e) {
-      final status = (e as Map)['status']?.toString() ?? '';
-      final count = (e)['count'] ?? 0;
-      return MapEntry(status, (count as num).toDouble());
-    }).toList();
-
-    final total = sections.fold<double>(0, (sum, e) => sum + e.value);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -182,74 +218,437 @@ class _DepartmentHeadOverviewView extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Overview ($date)', style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              _StatCard(title: 'Total Faculty', value: '${kpis['totalFaculty'] ?? 0}', icon: Icons.people, color: Colors.blue),
-              _StatCard(title: 'Present Today', value: '${kpis['presentToday'] ?? 0}', icon: Icons.check_circle, color: Colors.green),
-              _StatCard(title: 'Late Today', value: '${kpis['lateToday'] ?? 0}', icon: Icons.access_time, color: Colors.orange),
-              _StatCard(title: 'Absent Today', value: '${kpis['absentToday'] ?? 0}', icon: Icons.cancel, color: Colors.red),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Row(
-            children: [
-              Expanded(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Today Status', style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          height: 220,
-                          child: total <= 0
-                              ? const Center(child: Text('No data'))
-                              : PieChart(
-                                  PieChartData(
-                                    sectionsSpace: 2,
-                                    centerSpaceRadius: 48,
-                                    sections: List.generate(sections.length, (i) {
-                                      final item = sections[i];
-                                      final colors = [Colors.green, Colors.orange, Colors.purple, Colors.red];
-                                      final color = colors[i % colors.length];
-                                      final percent = total == 0 ? 0 : ((item.value / total) * 100);
-                                      return PieChartSectionData(
-                                        value: item.value,
-                                        title: '${percent.toStringAsFixed(0)}%',
-                                        color: color,
-                                        radius: 60,
-                                        titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                      );
-                                    }),
-                                  ),
-                                ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 8,
-                          children: sections.asMap().entries.map((entry) {
-                            final colors = [Colors.green, Colors.orange, Colors.purple, Colors.red];
-                            final color = colors[entry.key % colors.length];
-                            return _LegendChip(label: '${entry.value.key}: ${entry.value.value.toInt()}', color: color);
-                          }).toList(),
-                        )
-                      ],
-                    ),
+          // Analytics Section
+          const SizedBox(height: 32),
+          // Date Range Filter
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  const Icon(Icons.date_range, size: 20),
+                  const SizedBox(width: 8),
+                  Text('${DateFormat('MMM d, yyyy').format(_fromDate)}  —  ${DateFormat('MMM d, yyyy').format(_toDate)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const Spacer(),
+                  OutlinedButton.icon(
+                    onPressed: _pickDateRange,
+                    icon: const Icon(Icons.edit_calendar, size: 18),
+                    label: const Text('Change'),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
+          const SizedBox(height: 16),
+
+          if (provider.loadingAnalytics)
+            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+          else ...[
+            // Analytics KPI Cards
+            _buildAnalyticsKpiCards(provider.analytics, kpis),
+            const SizedBox(height: 24),
+
+            // Row: Pie Chart + Trend Line Chart
+            LayoutBuilder(builder: (context, constraints) {
+              final wide = constraints.maxWidth > 800;
+              final children = [
+                _buildAnalyticsStatusPieChart(provider.analytics),
+                _buildAnalyticsAttendanceTrendChart(provider.analytics),
+              ];
+              if (wide) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: children.map((c) => Expanded(child: Padding(padding: const EdgeInsets.only(right: 8), child: c))).toList(),
+                );
+              }
+              return Column(children: children.map((c) => Padding(padding: const EdgeInsets.only(bottom: 16), child: c)).toList());
+            }),
+            const SizedBox(height: 16),
+
+            // Faculty Ranking
+            _buildAnalyticsFacultyRanking(provider.analytics),
+            const SizedBox(height: 16),
+
+            // Room Utilization
+            _buildAnalyticsRoomUtilization(provider.analytics),
+          ],
         ],
       ),
     );
   }
+
+  // Analytics helper methods (moved from analytics view)
+  Widget _buildAnalyticsKpiCards(Map<String, dynamic> analytics, Map<dynamic, dynamic> dashboardKpis) {
+    final aKpis = (analytics['kpis'] as Map?) ?? {};
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        _StatCard(title: 'Total Faculty', value: '${aKpis['totalFaculty'] ?? 0}', icon: Icons.people, color: Colors.blue),
+        _StatCard(title: 'Scheduled Sessions', value: '${aKpis['totalScheduledSessions'] ?? 0}', icon: Icons.calendar_today, color: Colors.indigo),
+        _StatCardDual(
+          title: 'Present',
+          value: '${aKpis['totalPresent'] ?? 0}',
+          todayValue: '${dashboardKpis['presentToday'] ?? 0}',
+          icon: Icons.check_circle,
+          color: Colors.green,
+        ),
+        _StatCardDual(
+          title: 'Late',
+          value: '${aKpis['totalLate'] ?? 0}',
+          todayValue: '${dashboardKpis['lateToday'] ?? 0}',
+          icon: Icons.access_time,
+          color: Colors.orange,
+        ),
+        _StatCard(title: 'Absent Today', value: '${dashboardKpis['absentToday'] ?? 0}', icon: Icons.cancel, color: Colors.red),
+        _StatCard(title: 'Attendance Rate', value: '${aKpis['attendanceRate'] ?? 0}%', icon: Icons.trending_up, color: Colors.teal),
+      ],
+    );
+  }
+
+  Widget _buildAnalyticsStatusPieChart(Map<String, dynamic> analytics) {
+    final breakdown = (analytics['statusBreakdown'] as List?) ?? [];
+    final sections = breakdown.map((e) {
+      final m = e as Map;
+      return MapEntry(m['status']?.toString() ?? '', (m['count'] as num?)?.toDouble() ?? 0);
+    }).toList();
+    final total = sections.fold<double>(0, (sum, e) => sum + e.value);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Status Distribution', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 220,
+              child: total <= 0
+                  ? const Center(child: Text('No attendance data for this period'))
+                  : PieChart(PieChartData(
+                      sectionsSpace: 2,
+                      centerSpaceRadius: 40,
+                      sections: List.generate(sections.length, (i) {
+                        final item = sections[i];
+                        final color = _statusColors[item.key] ?? Colors.grey;
+                        final pct = total == 0 ? 0.0 : (item.value / total) * 100;
+                        return PieChartSectionData(
+                          value: item.value,
+                          title: '${pct.toStringAsFixed(0)}%',
+                          color: color,
+                          radius: 55,
+                          titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+                        );
+                      }),
+                    )),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 6,
+              children: sections.map((e) {
+                final color = _statusColors[e.key] ?? Colors.grey;
+                return _LegendChip(label: '${e.key}: ${e.value.toInt()}', color: color);
+              }).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsAttendanceTrendChart(Map<String, dynamic> analytics) {
+    final trend = (analytics['attendanceTrend'] as List?) ?? [];
+    if (trend.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Attendance Trend', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 48),
+              const Center(child: Text('No trend data for this period')),
+              const SizedBox(height: 48),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final presentSpots = <FlSpot>[];
+    final lateSpots = <FlSpot>[];
+    final labels = <String>[];
+
+    for (int i = 0; i < trend.length; i++) {
+      final m = trend[i] as Map;
+      labels.add((m['date']?.toString() ?? '').substring(5)); // MM-DD
+      presentSpots.add(FlSpot(i.toDouble(), (m['present'] as num?)?.toDouble() ?? 0));
+      lateSpots.add(FlSpot(i.toDouble(), (m['late'] as num?)?.toDouble() ?? 0));
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Attendance Trend', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 220,
+              child: LineChart(LineChartData(
+                gridData: const FlGridData(show: true, drawVerticalLine: false),
+                titlesData: FlTitlesData(
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 28,
+                      interval: math.max(1, (labels.length / 6).ceilToDouble()),
+                      getTitlesWidget: (value, meta) {
+                        final idx = value.toInt();
+                        if (idx < 0 || idx >= labels.length) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(labels[idx], style: const TextStyle(fontSize: 9)),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: presentSpots,
+                    isCurved: true,
+                    color: Colors.green,
+                    barWidth: 2,
+                    dotData: FlDotData(show: presentSpots.length < 15),
+                    belowBarData: BarAreaData(show: true, color: Colors.green.withOpacity(0.1)),
+                  ),
+                  LineChartBarData(
+                    spots: lateSpots,
+                    isCurved: true,
+                    color: Colors.orange,
+                    barWidth: 2,
+                    dotData: FlDotData(show: lateSpots.length < 15),
+                    belowBarData: BarAreaData(show: true, color: Colors.orange.withOpacity(0.1)),
+                  ),
+                ],
+              )),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                _LegendChip(label: 'Present', color: Colors.green),
+                SizedBox(width: 12),
+                _LegendChip(label: 'Late', color: Colors.orange),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsFacultyRanking(Map<String, dynamic> analytics) {
+    final ranking = (analytics['facultyRanking'] as List?) ?? [];
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Faculty Performance Ranking', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            if (ranking.isEmpty)
+              const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No data')))
+            else
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 20,
+                  columns: const [
+                    DataColumn(label: Text('#')),
+                    DataColumn(label: Text('Faculty')),
+                    DataColumn(label: Text('Sessions'), numeric: true),
+                    DataColumn(label: Text('Present'), numeric: true),
+                    DataColumn(label: Text('Late'), numeric: true),
+                    DataColumn(label: Text('Exceptions'), numeric: true),
+                    DataColumn(label: Text('Rate'), numeric: true),
+                  ],
+                  rows: List.generate(ranking.length, (i) {
+                    final r = ranking[i] as Map;
+                    final rate = (r['attendanceRate'] as num?)?.toDouble() ?? 0;
+                    final rateColor = rate >= 80 ? Colors.green : (rate >= 50 ? Colors.orange : Colors.red);
+                    return DataRow(cells: [
+                      DataCell(Text('${i + 1}')),
+                      DataCell(Text(r['FacultyName']?.toString() ?? '')),
+                      DataCell(Text('${r['totalSessions'] ?? 0}')),
+                      DataCell(Text('${r['presentCount'] ?? 0}')),
+                      DataCell(Text('${r['lateCount'] ?? 0}')),
+                      DataCell(Text('${r['exceptionCount'] ?? 0}')),
+                      DataCell(Text('${rate.toStringAsFixed(1)}%', style: TextStyle(color: rateColor, fontWeight: FontWeight.bold))),
+                    ]);
+                  }),
+                ),
+              ),
+            if (ranking.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 200,
+                child: BarChart(BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  gridData: const FlGridData(show: true, drawVerticalLine: false),
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          final idx = value.toInt();
+                          if (idx < 0 || idx >= ranking.length) return const SizedBox.shrink();
+                          final name = (ranking[idx] as Map)['FacultyName']?.toString() ?? '';
+                          final short = name.length > 10 ? '${name.substring(0, 10)}...' : name;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(short, style: const TextStyle(fontSize: 9)),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  maxY: 100,
+                  barGroups: List.generate(ranking.length, (i) {
+                    final rate = ((ranking[i] as Map)['attendanceRate'] as num?)?.toDouble() ?? 0;
+                    return BarChartGroupData(x: i, barRods: [
+                      BarChartRodData(
+                        toY: rate,
+                        color: rate >= 80 ? Colors.green : (rate >= 50 ? Colors.orange : Colors.red),
+                        width: 18,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ]);
+                  }),
+                )),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnalyticsRoomUtilization(Map<String, dynamic> analytics) {
+    final rooms = (analytics['roomUtilization'] as List?) ?? [];
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Room Utilization', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            if (rooms.isEmpty)
+              const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No room data')))
+            else ...[
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 24,
+                  columns: const [
+                    DataColumn(label: Text('Room')),
+                    DataColumn(label: Text('Building')),
+                    DataColumn(label: Text('Scheduled'), numeric: true),
+                    DataColumn(label: Text('Recorded'), numeric: true),
+                    DataColumn(label: Text('Util. Rate'), numeric: true),
+                  ],
+                  rows: rooms.map((e) {
+                    final r = e as Map;
+                    final rate = (r['utilizationRate'] as num?)?.toDouble() ?? 0;
+                    return DataRow(cells: [
+                      DataCell(Text(r['RoomName']?.toString() ?? '')),
+                      DataCell(Text(r['Building']?.toString() ?? '')),
+                      DataCell(Text('${r['scheduledSessions'] ?? 0}')),
+                      DataCell(Text('${r['attendanceRecorded'] ?? 0}')),
+                      DataCell(Text('${rate.toStringAsFixed(1)}%', style: TextStyle(
+                        color: rate >= 60 ? Colors.green : (rate >= 30 ? Colors.orange : Colors.red),
+                        fontWeight: FontWeight.bold,
+                      ))),
+                    ]);
+                  }).toList(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 200,
+                child: BarChart(BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  gridData: const FlGridData(show: true, drawVerticalLine: false),
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) {
+                          final idx = value.toInt();
+                          if (idx < 0 || idx >= rooms.length) return const SizedBox.shrink();
+                          final name = (rooms[idx] as Map)['RoomName']?.toString() ?? '';
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(name, style: const TextStyle(fontSize: 9)),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  barGroups: List.generate(rooms.length, (i) {
+                    final r = rooms[i] as Map;
+                    final scheduled = (r['scheduledSessions'] as num?)?.toDouble() ?? 0;
+                    final recorded = (r['attendanceRecorded'] as num?)?.toDouble() ?? 0;
+                    return BarChartGroupData(x: i, barRods: [
+                      BarChartRodData(toY: scheduled, color: Colors.blue.shade300, width: 12, borderRadius: BorderRadius.circular(3)),
+                      BarChartRodData(toY: recorded, color: Colors.green, width: 12, borderRadius: BorderRadius.circular(3)),
+                    ]);
+                  }),
+                )),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _LegendChip(label: 'Scheduled', color: Colors.blue.shade300),
+                  const SizedBox(width: 12),
+                  const _LegendChip(label: 'Recorded', color: Colors.green),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  static const _statusColors = {
+    'Present': Colors.green,
+    'Late': Colors.orange,
+    'No Schedule': Colors.purple,
+    'Wrong Room': Colors.red,
+  };
 }
 
 class _DepartmentHeadFacultyView extends StatefulWidget {
@@ -1227,482 +1626,6 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
   }
 }
 
-class _DepartmentHeadAnalyticsView extends StatefulWidget {
-  const _DepartmentHeadAnalyticsView();
-
-  @override
-  State<_DepartmentHeadAnalyticsView> createState() => _DepartmentHeadAnalyticsViewState();
-}
-
-class _DepartmentHeadAnalyticsViewState extends State<_DepartmentHeadAnalyticsView> {
-  late DateTime _fromDate;
-  late DateTime _toDate;
-
-  @override
-  void initState() {
-    super.initState();
-    _toDate = DateTime.now();
-    _fromDate = _toDate.subtract(const Duration(days: 30));
-    WidgetsBinding.instance.addPostFrameCallback((_) => _loadData());
-  }
-
-  void _loadData() {
-    final from = DateFormat('yyyy-MM-dd').format(_fromDate);
-    final to = DateFormat('yyyy-MM-dd').format(_toDate);
-    context.read<DepartmentHeadProvider>().loadAnalytics(from: from, to: to);
-  }
-
-  Future<void> _pickDateRange() async {
-    final picked = await showDateRangePicker(
-      context: context,
-      firstDate: DateTime(2024),
-      lastDate: DateTime.now(),
-      initialDateRange: DateTimeRange(start: _fromDate, end: _toDate),
-    );
-    if (picked != null) {
-      setState(() {
-        _fromDate = picked.start;
-        _toDate = picked.end;
-      });
-      _loadData();
-    }
-  }
-
-  static const _statusColors = {
-    'Present': Colors.green,
-    'Late': Colors.orange,
-    'No Schedule': Colors.purple,
-    'Wrong Room': Colors.red,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final provider = context.watch<DepartmentHeadProvider>();
-    final fromStr = DateFormat('MMM d, yyyy').format(_fromDate);
-    final toStr = DateFormat('MMM d, yyyy').format(_toDate);
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Date Range Filter
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  const Icon(Icons.date_range, size: 20),
-                  const SizedBox(width: 8),
-                  Text('$fromStr  —  $toStr', style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const Spacer(),
-                  OutlinedButton.icon(
-                    onPressed: _pickDateRange,
-                    icon: const Icon(Icons.edit_calendar, size: 18),
-                    label: const Text('Change'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          if (provider.loadingAnalytics)
-            const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
-          else ...[
-            // KPI Cards
-            _buildKpiCards(provider.analytics),
-            const SizedBox(height: 24),
-
-            // Row: Pie Chart + Trend Line Chart
-            LayoutBuilder(builder: (context, constraints) {
-              final wide = constraints.maxWidth > 800;
-              final children = [
-                _buildStatusPieChart(provider.analytics),
-                _buildAttendanceTrendChart(provider.analytics),
-              ];
-              if (wide) {
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: children.map((c) => Expanded(child: Padding(padding: const EdgeInsets.only(right: 8), child: c))).toList(),
-                );
-              }
-              return Column(children: children.map((c) => Padding(padding: const EdgeInsets.only(bottom: 16), child: c)).toList());
-            }),
-            const SizedBox(height: 16),
-
-            // Faculty Ranking
-            _buildFacultyRanking(provider.analytics),
-            const SizedBox(height: 16),
-
-            // Room Utilization
-            _buildRoomUtilization(provider.analytics),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildKpiCards(Map<String, dynamic> analytics) {
-    final kpis = (analytics['kpis'] as Map?) ?? {};
-    final items = <Map<String, dynamic>>[
-      {'title': 'Total Faculty', 'value': '${kpis['totalFaculty'] ?? 0}', 'icon': Icons.people, 'color': Colors.blue},
-      {'title': 'Scheduled Sessions', 'value': '${kpis['totalScheduledSessions'] ?? 0}', 'icon': Icons.calendar_today, 'color': Colors.indigo},
-      {'title': 'Present', 'value': '${kpis['totalPresent'] ?? 0}', 'icon': Icons.check_circle, 'color': Colors.green},
-      {'title': 'Late', 'value': '${kpis['totalLate'] ?? 0}', 'icon': Icons.access_time, 'color': Colors.orange},
-      {'title': 'Exceptions', 'value': '${kpis['totalExceptions'] ?? 0}', 'icon': Icons.warning_amber, 'color': Colors.red},
-      {'title': 'Attendance Rate', 'value': '${kpis['attendanceRate'] ?? 0}%', 'icon': Icons.trending_up, 'color': Colors.teal},
-    ];
-
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: items.map((item) => _StatCard(
-        title: item['title'] as String,
-        value: item['value'] as String,
-        icon: item['icon'] as IconData,
-        color: item['color'] as Color,
-      )).toList(),
-    );
-  }
-
-  Widget _buildStatusPieChart(Map<String, dynamic> analytics) {
-    final breakdown = (analytics['statusBreakdown'] as List?) ?? [];
-    final sections = breakdown.map((e) {
-      final m = e as Map;
-      return MapEntry(m['status']?.toString() ?? '', (m['count'] as num?)?.toDouble() ?? 0);
-    }).toList();
-    final total = sections.fold<double>(0, (sum, e) => sum + e.value);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Status Distribution', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 220,
-              child: total <= 0
-                  ? const Center(child: Text('No attendance data for this period'))
-                  : PieChart(PieChartData(
-                      sectionsSpace: 2,
-                      centerSpaceRadius: 40,
-                      sections: List.generate(sections.length, (i) {
-                        final item = sections[i];
-                        final color = _statusColors[item.key] ?? Colors.grey;
-                        final pct = total == 0 ? 0.0 : (item.value / total) * 100;
-                        return PieChartSectionData(
-                          value: item.value,
-                          title: '${pct.toStringAsFixed(0)}%',
-                          color: color,
-                          radius: 55,
-                          titleStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-                        );
-                      }),
-                    )),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 6,
-              children: sections.map((e) {
-                final color = _statusColors[e.key] ?? Colors.grey;
-                return _LegendChip(label: '${e.key}: ${e.value.toInt()}', color: color);
-              }).toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttendanceTrendChart(Map<String, dynamic> analytics) {
-    final trend = (analytics['attendanceTrend'] as List?) ?? [];
-    if (trend.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Attendance Trend', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 48),
-              const Center(child: Text('No trend data for this period')),
-              const SizedBox(height: 48),
-            ],
-          ),
-        ),
-      );
-    }
-
-    final presentSpots = <FlSpot>[];
-    final lateSpots = <FlSpot>[];
-    final labels = <String>[];
-
-    for (int i = 0; i < trend.length; i++) {
-      final m = trend[i] as Map;
-      labels.add((m['date']?.toString() ?? '').substring(5)); // MM-DD
-      presentSpots.add(FlSpot(i.toDouble(), (m['present'] as num?)?.toDouble() ?? 0));
-      lateSpots.add(FlSpot(i.toDouble(), (m['late'] as num?)?.toDouble() ?? 0));
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Attendance Trend', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 220,
-              child: LineChart(LineChartData(
-                gridData: const FlGridData(show: true, drawVerticalLine: false),
-                titlesData: FlTitlesData(
-                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
-                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 28,
-                      interval: math.max(1, (labels.length / 6).ceilToDouble()),
-                      getTitlesWidget: (value, meta) {
-                        final idx = value.toInt();
-                        if (idx < 0 || idx >= labels.length) return const SizedBox.shrink();
-                        return Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(labels[idx], style: const TextStyle(fontSize: 9)),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                borderData: FlBorderData(show: false),
-                lineBarsData: [
-                  LineChartBarData(
-                    spots: presentSpots,
-                    isCurved: true,
-                    color: Colors.green,
-                    barWidth: 2,
-                    dotData: FlDotData(show: presentSpots.length < 15),
-                    belowBarData: BarAreaData(show: true, color: Colors.green.withOpacity(0.1)),
-                  ),
-                  LineChartBarData(
-                    spots: lateSpots,
-                    isCurved: true,
-                    color: Colors.orange,
-                    barWidth: 2,
-                    dotData: FlDotData(show: lateSpots.length < 15),
-                    belowBarData: BarAreaData(show: true, color: Colors.orange.withOpacity(0.1)),
-                  ),
-                ],
-              )),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
-                _LegendChip(label: 'Present', color: Colors.green),
-                SizedBox(width: 12),
-                _LegendChip(label: 'Late', color: Colors.orange),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFacultyRanking(Map<String, dynamic> analytics) {
-    final ranking = (analytics['facultyRanking'] as List?) ?? [];
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Faculty Performance Ranking', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (ranking.isEmpty)
-              const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No data')))
-            else
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 20,
-                  columns: const [
-                    DataColumn(label: Text('#')),
-                    DataColumn(label: Text('Faculty')),
-                    DataColumn(label: Text('Sessions'), numeric: true),
-                    DataColumn(label: Text('Present'), numeric: true),
-                    DataColumn(label: Text('Late'), numeric: true),
-                    DataColumn(label: Text('Exceptions'), numeric: true),
-                    DataColumn(label: Text('Rate'), numeric: true),
-                  ],
-                  rows: List.generate(ranking.length, (i) {
-                    final r = ranking[i] as Map;
-                    final rate = (r['attendanceRate'] as num?)?.toDouble() ?? 0;
-                    final rateColor = rate >= 80 ? Colors.green : (rate >= 50 ? Colors.orange : Colors.red);
-                    return DataRow(cells: [
-                      DataCell(Text('${i + 1}')),
-                      DataCell(Text(r['FacultyName']?.toString() ?? '')),
-                      DataCell(Text('${r['totalSessions'] ?? 0}')),
-                      DataCell(Text('${r['presentCount'] ?? 0}')),
-                      DataCell(Text('${r['lateCount'] ?? 0}')),
-                      DataCell(Text('${r['exceptionCount'] ?? 0}')),
-                      DataCell(Text('${rate.toStringAsFixed(1)}%', style: TextStyle(color: rateColor, fontWeight: FontWeight.bold))),
-                    ]);
-                  }),
-                ),
-              ),
-            if (ranking.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 200,
-                child: BarChart(BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
-                  titlesData: FlTitlesData(
-                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final idx = value.toInt();
-                          if (idx < 0 || idx >= ranking.length) return const SizedBox.shrink();
-                          final name = (ranking[idx] as Map)['FacultyName']?.toString() ?? '';
-                          final short = name.length > 10 ? '${name.substring(0, 10)}...' : name;
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(short, style: const TextStyle(fontSize: 9)),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  maxY: 100,
-                  barGroups: List.generate(ranking.length, (i) {
-                    final rate = ((ranking[i] as Map)['attendanceRate'] as num?)?.toDouble() ?? 0;
-                    return BarChartGroupData(x: i, barRods: [
-                      BarChartRodData(
-                        toY: rate,
-                        color: rate >= 80 ? Colors.green : (rate >= 50 ? Colors.orange : Colors.red),
-                        width: 18,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ]);
-                  }),
-                )),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRoomUtilization(Map<String, dynamic> analytics) {
-    final rooms = (analytics['roomUtilization'] as List?) ?? [];
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Room Utilization', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            if (rooms.isEmpty)
-              const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('No room data')))
-            else ...[
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 24,
-                  columns: const [
-                    DataColumn(label: Text('Room')),
-                    DataColumn(label: Text('Building')),
-                    DataColumn(label: Text('Scheduled'), numeric: true),
-                    DataColumn(label: Text('Recorded'), numeric: true),
-                    DataColumn(label: Text('Util. Rate'), numeric: true),
-                  ],
-                  rows: rooms.map((e) {
-                    final r = e as Map;
-                    final rate = (r['utilizationRate'] as num?)?.toDouble() ?? 0;
-                    return DataRow(cells: [
-                      DataCell(Text(r['RoomName']?.toString() ?? '')),
-                      DataCell(Text(r['Building']?.toString() ?? '')),
-                      DataCell(Text('${r['scheduledSessions'] ?? 0}')),
-                      DataCell(Text('${r['attendanceRecorded'] ?? 0}')),
-                      DataCell(Text('${rate.toStringAsFixed(1)}%', style: TextStyle(
-                        color: rate >= 60 ? Colors.green : (rate >= 30 ? Colors.orange : Colors.red),
-                        fontWeight: FontWeight.bold,
-                      ))),
-                    ]);
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 200,
-                child: BarChart(BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
-                  titlesData: FlTitlesData(
-                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 32)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        getTitlesWidget: (value, meta) {
-                          final idx = value.toInt();
-                          if (idx < 0 || idx >= rooms.length) return const SizedBox.shrink();
-                          final name = (rooms[idx] as Map)['RoomName']?.toString() ?? '';
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(name, style: const TextStyle(fontSize: 9)),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  barGroups: List.generate(rooms.length, (i) {
-                    final r = rooms[i] as Map;
-                    final scheduled = (r['scheduledSessions'] as num?)?.toDouble() ?? 0;
-                    final recorded = (r['attendanceRecorded'] as num?)?.toDouble() ?? 0;
-                    return BarChartGroupData(x: i, barRods: [
-                      BarChartRodData(toY: scheduled, color: Colors.blue.shade300, width: 12, borderRadius: BorderRadius.circular(3)),
-                      BarChartRodData(toY: recorded, color: Colors.green, width: 12, borderRadius: BorderRadius.circular(3)),
-                    ]);
-                  }),
-                )),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _LegendChip(label: 'Scheduled', color: Colors.blue.shade300),
-                  const SizedBox(width: 12),
-                  const _LegendChip(label: 'Recorded', color: Colors.green),
-                ],
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _LegendChip extends StatelessWidget {
   final String label;
   final Color color;
@@ -1743,9 +1666,11 @@ class _StatCard extends StatelessWidget {
     return Card(
       child: Container(
         width: 220,
+        height: 110,
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1759,6 +1684,52 @@ class _StatCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatCardDual extends StatelessWidget {
+  final String title;
+  final String value;
+  final String todayValue;
+  final IconData icon;
+  final Color color;
+
+  const _StatCardDual({required this.title, required this.value, required this.todayValue, required this.icon, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Container(
+        width: 220,
+        height: 110,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Icon(icon, color: color, size: 22),
+                Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                const Spacer(),
+                Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const SizedBox(width: 22),
+                Text('$title Today', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+                const Spacer(),
+                Text(todayValue, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+              ],
+            ),
           ],
         ),
       ),

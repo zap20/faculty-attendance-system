@@ -5,6 +5,8 @@ import '../../services/data_service.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/sync_status_widget.dart';
 import '../shared/reports_screen.dart';
+import 'admin_analytics_screen.dart';
+import '../../widgets/auto_refresh_mixin.dart';
 
 class AdminDashboardScreen extends StatefulWidget {
   const AdminDashboardScreen({super.key});
@@ -13,7 +15,7 @@ class AdminDashboardScreen extends StatefulWidget {
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRefreshMixin {
   String _currentScreen = 'admin_dashboard';
   Map<String, dynamic> _dashboardData = {};
   bool _isLoading = true;
@@ -23,6 +25,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   void initState() {
     super.initState();
     _loadDashboard();
+    startAutoRefresh(() => _silentRefresh());
   }
 
   Future<void> _loadDashboard() async {
@@ -40,6 +43,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  void _silentRefresh() async {
+    try {
+      final data = await DataService.getDashboard();
+      if (mounted) {
+        setState(() => _dashboardData = data);
+      }
+    } catch (_) {}
   }
 
   void _handleDrawerSelection(String selection) {
@@ -121,7 +133,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Widget _buildContent() {
     switch (_currentScreen) {
       case 'admin_dashboard':
-        return _buildDashboardView();
+        return const AdminAnalyticsScreen();
       case 'admin_faculty':
         return _buildFacultyView();
       case 'admin_departments':
@@ -271,44 +283,482 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Widget _buildDepartmentsView() {
-    return _buildCrudView(
-      title: 'Department Management',
-      fetchData: DataService.getDepartments,
-      columns: ['Name', 'Head', 'Dean', 'Faculty Count'],
-      getRowData: (dept) => [
-        dept.departmentName,
-        dept.departmentHead ?? '-',
-        dept.departmentDean ?? '-',
-        '${dept.facultyCount ?? 0}',
-      ],
+    return FutureBuilder<List<dynamic>>(
+      future: Future.wait([
+        DataService.getDepartments(),
+        DataService.getFaculties(),
+        DataService.getSubjects(),
+        DataService.getRooms(),
+        DataService.getSchedules(),
+      ]),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
+        }
+
+        final departments = snapshot.data![0] as List;
+        final faculties = snapshot.data![1] as List;
+        final subjects = snapshot.data![2] as List;
+        final rooms = snapshot.data![3] as List;
+        final schedules = snapshot.data![4] as List;
+
+        // Build a set of roomIds used by each department (via schedules)
+        final Map<int, Set<int>> deptRoomIds = {};
+        for (var schedule in schedules) {
+          final faculty = faculties.cast<dynamic>().where((f) => f.facultyId == schedule.facultyId?.toString()).toList();
+          if (faculty.isNotEmpty) {
+            final deptId = faculty.first.departmentId as int;
+            deptRoomIds.putIfAbsent(deptId, () => {});
+            if (schedule.roomId != null) deptRoomIds[deptId]!.add(schedule.roomId as int);
+          }
+        }
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Department Management', style: Theme.of(context).textTheme.headlineSmall),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Add new Department item')),
+                      );
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add New'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              LayoutBuilder(builder: (context, constraints) {
+                const spacing = 16.0;
+                final cardWidth = (constraints.maxWidth - spacing * 2) / 3;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: departments.map<Widget>((dept) {
+                    final deptId = dept.departmentId as int;
+                    final deptFaculties = faculties.cast<dynamic>().where((f) => f.departmentId == deptId).toList();
+                    final deptSubjects = subjects.cast<dynamic>().where((s) => s.departmentId == deptId).toList();
+                    final usedRoomIds = deptRoomIds[deptId] ?? {};
+                    final deptRooms = rooms.cast<dynamic>().where((r) => usedRoomIds.contains(r.roomId)).toList();
+
+                    return SizedBox(
+                      width: cardWidth.clamp(300.0, double.infinity),
+                      child: Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Department header
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primaryContainer,
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(12),
+                            topRight: Radius.circular(12),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(Icons.business, color: Theme.of(context).colorScheme.onPrimaryContainer),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    dept.departmentName,
+                                    style: TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                _buildDeptInfoChip(Icons.person, 'Head', dept.departmentHead ?? 'Not Assigned', Colors.blue),
+                                const SizedBox(width: 12),
+                                _buildDeptInfoChip(Icons.school, 'Dean', dept.departmentDean ?? 'Not Assigned', Colors.purple),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Stats row
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        child: Row(
+                          children: [
+                            _buildDeptStatBadge('${deptFaculties.length}', 'Faculty', Colors.blue),
+                            const SizedBox(width: 12),
+                            _buildDeptStatBadge('${deptSubjects.length}', 'Subjects', Colors.orange),
+                            const SizedBox(width: 12),
+                            _buildDeptStatBadge('${deptRooms.length}', 'Rooms', Colors.green),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      // Faculty list
+                      if (deptFaculties.isNotEmpty) ...[
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                          child: Text('Faculty Members', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                        ),
+                        ...deptFaculties.map((f) => ListTile(
+                          dense: true,
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: Colors.blue.shade100,
+                            child: Text(f.facultyName.substring(0, 1).toUpperCase(), style: TextStyle(fontSize: 14, color: Colors.blue.shade800)),
+                          ),
+                          title: Text(f.facultyName, style: const TextStyle(fontSize: 14)),
+                          subtitle: Text('${f.position} • ${f.employmentStatus}', style: const TextStyle(fontSize: 12)),
+                          trailing: Text(f.facultyId, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                        )),
+                      ],
+                      // Subjects list
+                      if (deptSubjects.isNotEmpty) ...[
+                        const Divider(height: 1),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                          child: Text('Subjects', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: deptSubjects.map<Widget>((s) => Chip(
+                              avatar: const Icon(Icons.book, size: 16),
+                              label: Text('${s.courseCode} - ${s.subjectName} (${s.units}u)', style: const TextStyle(fontSize: 12)),
+                              backgroundColor: Colors.orange.shade50,
+                              side: BorderSide(color: Colors.orange.shade200),
+                            )).toList(),
+                          ),
+                        ),
+                      ],
+                      // Rooms list
+                      if (deptRooms.isNotEmpty) ...[
+                        const Divider(height: 1),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                          child: Text('Rooms Used', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            children: deptRooms.map<Widget>((r) => Chip(
+                              avatar: const Icon(Icons.room, size: 16),
+                              label: Text('${r.roomName} - ${r.building}', style: const TextStyle(fontSize: 12)),
+                              backgroundColor: Colors.green.shade50,
+                              side: BorderSide(color: Colors.green.shade200),
+                            )).toList(),
+                          ),
+                        ),
+                      ],
+                      if (deptFaculties.isEmpty && deptSubjects.isEmpty && deptRooms.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text('No data assigned to this department yet.', style: TextStyle(color: Colors.grey)),
+                        ),
+                    ],
+                  ),
+                ),
+                    );
+                  }).toList(),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDeptInfoChip(IconData icon, String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 4),
+          Text('$label: ', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+          Text(value, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDeptStatBadge(String count, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(count, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: color)),
+        ],
+      ),
     );
   }
 
   Widget _buildSubjectsView() {
-    return _buildCrudView(
-      title: 'Subject Management',
-      fetchData: DataService.getSubjects,
-      columns: ['Code', 'Name', 'Units', 'Department'],
-      getRowData: (subject) => [
-        subject.courseCode,
-        subject.subjectName,
-        '${subject.units}',
-        subject.departmentName ?? '-',
-      ],
+    return FutureBuilder<List<dynamic>>(
+      future: DataService.getSubjects(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
+        }
+        final subjects = snapshot.data ?? [];
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Subject Management', style: Theme.of(context).textTheme.headlineSmall),
+                  ElevatedButton.icon(
+                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add new Subject'))),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add New'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              LayoutBuilder(builder: (context, constraints) {
+                const spacing = 16.0;
+                final cardWidth = (constraints.maxWidth - spacing * 2) / 3;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: subjects.map<Widget>((subject) {
+                    return SizedBox(
+                      width: cardWidth.clamp(280.0, double.infinity),
+                      child: Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(12),
+                                  topRight: Radius.circular(12),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: Colors.orange.shade100,
+                                    child: Icon(Icons.book, color: Colors.orange.shade700),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(subject.courseCode, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.orange.shade800)),
+                                        const SizedBox(height: 2),
+                                        Text(subject.subjectName, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis, maxLines: 2),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                children: [
+                                  _subjectInfoChip(Icons.school, '${subject.units} Units', Colors.blue),
+                                  const SizedBox(width: 8),
+                                  Expanded(child: _subjectInfoChip(Icons.business, subject.departmentName ?? 'N/A', Colors.purple)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _subjectInfoChip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Flexible(child: Text(label, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
+        ],
+      ),
     );
   }
 
   Widget _buildRoomsView() {
-    return _buildCrudView(
-      title: 'Room Management',
-      fetchData: DataService.getRooms,
-      columns: ['Name', 'Building', 'Capacity', 'Devices'],
-      getRowData: (room) => [
-        room.roomName,
-        room.building,
-        '${room.capacity ?? "-"}',
-        '${room.deviceCount ?? 0}',
-      ],
+    return FutureBuilder<List<dynamic>>(
+      future: DataService.getRooms(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)));
+        }
+        final rooms = snapshot.data ?? [];
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Room Management', style: Theme.of(context).textTheme.headlineSmall),
+                  ElevatedButton.icon(
+                    onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Add new Room'))),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add New'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              LayoutBuilder(builder: (context, constraints) {
+                const spacing = 16.0;
+                final cardWidth = (constraints.maxWidth - spacing * 2) / 3;
+                return Wrap(
+                  spacing: spacing,
+                  runSpacing: spacing,
+                  children: rooms.map<Widget>((room) {
+                    return SizedBox(
+                      width: cardWidth.clamp(280.0, double.infinity),
+                      child: Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: const BorderRadius.only(
+                                  topLeft: Radius.circular(12),
+                                  topRight: Radius.circular(12),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: Colors.green.shade100,
+                                    child: Icon(Icons.meeting_room, color: Colors.green.shade700),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(room.roomName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 2),
+                                        Text(room.building, style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                children: [
+                                  _roomInfoChip(Icons.people, 'Capacity: ${room.capacity ?? "N/A"}', Colors.blue),
+                                  const SizedBox(width: 8),
+                                  _roomInfoChip(Icons.devices, 'Devices: ${room.deviceCount ?? 0}', Colors.teal),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _roomInfoChip(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w600)),
+        ],
+      ),
     );
   }
 

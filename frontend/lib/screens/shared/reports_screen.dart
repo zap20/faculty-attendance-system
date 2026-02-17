@@ -1,10 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import '../../services/api_service.dart';
-import 'package:sqflite/sqflite.dart';
-import '../../services/offline/database_helper.dart';
-import '../../services/offline/network_service.dart';
 import 'package:flutter/services.dart';
 
 class ReportsScreen extends StatefulWidget {
@@ -78,228 +74,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
         qp['status'] = _statusFilter!;
       }
 
-      final network = NetworkService();
-      if (!network.isOnline && !kIsWeb) {
-        // Go straight to offline (sqflite not available on web)
-        final data = await _generateOfflineReport();
-        setState(() => _reportData = data);
-        return;
-      }
-
       final response = await ApiService.get('/reports/$_reportType', queryParams: qp);
       setState(() {
         _reportData = (response['data'] as Map<String, dynamic>?) ?? {};
       });
     } catch (e) {
-      // API failed — try offline fallback (only on mobile, sqflite not available on web)
-      if (!kIsWeb) {
-        try {
-          final data = await _generateOfflineReport();
-          setState(() => _reportData = data);
-        } catch (e2) {
-          setState(() => _error = 'Failed to generate report: $e2');
-        }
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('socketexception') || msg.contains('connection failed') || msg.contains('errno=101')) {
+        setState(() => _error = 'Reports are not available offline. Please connect to the network.');
       } else {
-        setState(() => _error = 'Failed to load report: $e');
+        setState(() => _error = e.toString());
       }
     } finally {
       setState(() => _loading = false);
     }
-  }
-
-  /// Generate report data from local Sqflite database
-  Future<Map<String, dynamic>> _generateOfflineReport() async {
-    final db = await DatabaseHelper().database;
-
-    switch (_reportType) {
-      case 'daily':
-        return _offlineDailyReport(db);
-      case 'date-range':
-        return _offlineDateRangeReport(db);
-      case 'faculty-performance':
-        return _offlineFacultyPerformanceReport(db);
-      case 'room-utilization':
-        return _offlineRoomUtilizationReport(db);
-      case 'exceptions':
-        return _offlineExceptionsReport(db);
-      default:
-        return {};
-    }
-  }
-
-  Future<Map<String, dynamic>> _offlineDailyReport(dynamic db) async {
-    final date = _fmt(_singleDate);
-    final where = <String>['a.Date = ?', 'a.deletedAt IS NULL'];
-    final args = <dynamic>[date];
-
-    if (_statusFilter != null && _statusFilter!.isNotEmpty) {
-      where.add('a.AttendanceStatus = ?');
-      args.add(_statusFilter);
-    }
-
-    final rows = await db.rawQuery('''
-      SELECT a.*, f.FacultyName, f.DepartmentID,
-             s.SubjectID, sub.SubjectName, sub.CourseCode,
-             s.StartTime AS ScheduledStart, s.EndTime AS ScheduledEnd,
-             r.RoomName, r.Building
-      FROM attendances a
-      LEFT JOIN faculties f ON a.FacultyID = f.FacultyID
-      LEFT JOIN schedules s ON a.ScheduleID = s.ScheduleID
-      LEFT JOIN subjects sub ON s.SubjectID = sub.SubjectID
-      LEFT JOIN rooms r ON s.RoomID = r.RoomID
-      WHERE ${where.join(' AND ')}
-      ORDER BY a.TimeIn
-    ''', args);
-
-    return {
-      'date': date,
-      'totalRecords': rows.length,
-      'records': rows,
-      'offline': true,
-    };
-  }
-
-  Future<Map<String, dynamic>> _offlineDateRangeReport(dynamic db) async {
-    final from = _fmt(_fromDate);
-    final to = _fmt(_toDate);
-
-    final totalPresent = Sqflite.firstIntValue(await db.rawQuery(
-      'SELECT COUNT(*) FROM attendances WHERE Date >= ? AND Date <= ? AND deletedAt IS NULL',
-      [from, to],
-    )) ?? 0;
-
-    final totalLate = Sqflite.firstIntValue(await db.rawQuery(
-      "SELECT COUNT(*) FROM attendances WHERE Date >= ? AND Date <= ? AND AttendanceStatus = 'Late' AND deletedAt IS NULL",
-      [from, to],
-    )) ?? 0;
-
-    final totalExceptions = Sqflite.firstIntValue(await db.rawQuery(
-      "SELECT COUNT(*) FROM attendances WHERE Date >= ? AND Date <= ? AND AttendanceStatus IN ('No Schedule','Wrong Room') AND deletedAt IS NULL",
-      [from, to],
-    )) ?? 0;
-
-    final totalScheduled = Sqflite.firstIntValue(await db.rawQuery(
-      'SELECT COUNT(*) FROM schedules WHERE deletedAt IS NULL',
-    )) ?? 1;
-
-    final rate = totalScheduled > 0 ? ((totalPresent / totalScheduled) * 100).round() : 0;
-
-    return {
-      'from': from,
-      'to': to,
-      'totalScheduledSessions': totalScheduled,
-      'totalPresent': totalPresent,
-      'totalLate': totalLate,
-      'totalExceptions': totalExceptions,
-      'attendanceRate': rate,
-      'offline': true,
-    };
-  }
-
-  Future<Map<String, dynamic>> _offlineFacultyPerformanceReport(dynamic db) async {
-    final from = _fmt(_fromDate);
-    final to = _fmt(_toDate);
-
-    final rows = await db.rawQuery('''
-      SELECT f.FacultyID, f.FacultyName, d.DepartmentName,
-             COUNT(a.AttendanceID) as totalSessions,
-             SUM(CASE WHEN a.AttendanceStatus IN ('Present','Late') THEN 1 ELSE 0 END) as presentCount,
-             SUM(CASE WHEN a.AttendanceStatus = 'Late' THEN 1 ELSE 0 END) as lateCount,
-             SUM(CASE WHEN a.AttendanceStatus IN ('No Schedule','Wrong Room') THEN 1 ELSE 0 END) as exceptionCount
-      FROM faculties f
-      LEFT JOIN departments d ON f.DepartmentID = d.DepartmentID
-      LEFT JOIN attendances a ON a.FacultyID = f.FacultyID AND a.Date >= ? AND a.Date <= ? AND a.deletedAt IS NULL
-      WHERE f.deletedAt IS NULL
-      GROUP BY f.FacultyID
-      ORDER BY f.FacultyName
-    ''', [from, to]);
-
-    final records = rows.map((r) {
-      final total = (r['totalSessions'] as num?) ?? 0;
-      final present = (r['presentCount'] as num?) ?? 0;
-      final rate = total > 0 ? ((present / total) * 100) : 0.0;
-      return {
-        ...r,
-        'attendanceRate': rate,
-      };
-    }).toList();
-
-    return {
-      'records': records,
-      'offline': true,
-    };
-  }
-
-  Future<Map<String, dynamic>> _offlineRoomUtilizationReport(dynamic db) async {
-    final from = _fmt(_fromDate);
-    final to = _fmt(_toDate);
-
-    final rows = await db.rawQuery('''
-      SELECT r.RoomID, r.RoomName, r.Building,
-             COUNT(DISTINCT s.ScheduleID) as scheduledSessions,
-             COUNT(DISTINCT a.AttendanceID) as validAttendanceCount
-      FROM rooms r
-      LEFT JOIN schedules s ON s.RoomID = r.RoomID AND s.deletedAt IS NULL
-      LEFT JOIN attendances a ON a.ScheduleID = s.ScheduleID AND a.Date >= ? AND a.Date <= ? AND a.deletedAt IS NULL
-      WHERE r.deletedAt IS NULL
-      GROUP BY r.RoomID
-      ORDER BY r.RoomName
-    ''', [from, to]);
-
-    final records = rows.map((r) {
-      final scheduled = (r['scheduledSessions'] as num?) ?? 0;
-      final valid = (r['validAttendanceCount'] as num?) ?? 0;
-      final rate = scheduled > 0 ? ((valid / scheduled) * 100) : 0.0;
-      return {
-        ...r,
-        'utilizationRate': rate,
-      };
-    }).toList();
-
-    return {
-      'records': records,
-      'offline': true,
-    };
-  }
-
-  Future<Map<String, dynamic>> _offlineExceptionsReport(dynamic db) async {
-    final where = <String>["a.AttendanceStatus IN ('Late','No Schedule','Wrong Room')", 'a.deletedAt IS NULL'];
-    final args = <dynamic>[];
-
-    if (_reportType == 'daily') {
-      where.add('a.Date = ?');
-      args.add(_fmt(_singleDate));
-    } else {
-      where.add('a.Date >= ?');
-      where.add('a.Date <= ?');
-      args.add(_fmt(_fromDate));
-      args.add(_fmt(_toDate));
-    }
-
-    if (_statusFilter != null && _statusFilter!.isNotEmpty) {
-      where.add('a.AttendanceStatus = ?');
-      args.add(_statusFilter);
-    }
-
-    final rows = await db.rawQuery('''
-      SELECT a.Date, f.FacultyName, d.DepartmentName,
-             sub.SubjectName, r.RoomName,
-             a.AttendanceStatus, a.TimeIn, a.Remarks
-      FROM attendances a
-      LEFT JOIN faculties f ON a.FacultyID = f.FacultyID
-      LEFT JOIN departments d ON f.DepartmentID = d.DepartmentID
-      LEFT JOIN schedules s ON a.ScheduleID = s.ScheduleID
-      LEFT JOIN subjects sub ON s.SubjectID = sub.SubjectID
-      LEFT JOIN rooms r ON s.RoomID = r.RoomID
-      WHERE ${where.join(' AND ')}
-      ORDER BY a.Date DESC, a.TimeIn DESC
-    ''', args);
-
-    return {
-      'totalRecords': rows.length,
-      'records': rows,
-      'offline': true,
-    };
   }
 
   String _buildCsvFromData() {

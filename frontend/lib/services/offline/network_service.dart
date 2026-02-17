@@ -12,7 +12,7 @@ class NetworkService {
   final Connectivity _connectivity = Connectivity();
   final StreamController<bool> _connectionController = StreamController<bool>.broadcast();
 
-  bool _isOnline = kIsWeb; // Default to online on web (no sqflite fallback)
+  bool _isOnline = kIsWeb ? true : false;
   bool _initialized = false;
 
   /// Stream of connectivity changes (true = online, false = offline)
@@ -25,6 +25,13 @@ class NetworkService {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
+
+    // On web, always online — offline-first only applies to mobile
+    if (kIsWeb) {
+      _isOnline = true;
+      debugPrint('[NetworkService] Web platform — always ONLINE');
+      return;
+    }
 
     // Check initial status
     _isOnline = await checkConnection();
@@ -46,6 +53,7 @@ class NetworkService {
 
   /// Check if device has actual internet connectivity
   Future<bool> checkConnection() async {
+    if (kIsWeb) return true;
     try {
       final result = await _connectivity.checkConnectivity();
       final hasConnectivity = result != ConnectivityResult.none;
@@ -69,6 +77,7 @@ class NetworkService {
 
   /// Force offline mode (called when network errors are detected)
   void markOffline() {
+    if (kIsWeb) return; // Web is always online
     if (_isOnline) {
       _isOnline = false;
       _connectionController.add(false);

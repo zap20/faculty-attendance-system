@@ -42,9 +42,10 @@ class ReportController {
             : $this->facultyModel->count();
 
         $dayOfWeek = date('l', strtotime($date));
-        $scheduledToday = $this->scheduleModel->countScheduledFaculty($dayOfWeek, $departmentId);
+        $scheduledToday = $this->scheduleModel->countScheduledSessions($dayOfWeek, $departmentId);
+        $totalRecords = (int) ($summary['TotalRecords'] ?? 0);
         $totalPresent = (int) ($summary['TotalPresent'] ?? 0);
-        $absent = max(0, $scheduledToday - $totalPresent);
+        $absent = max(0, $scheduledToday - $totalRecords);
 
         Response::success([
             'date' => $date,

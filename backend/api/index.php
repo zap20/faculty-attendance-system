@@ -323,6 +323,8 @@ try {
             $controller->push();
         } elseif ($method === 'GET' && $action === 'pull') {
             $controller->pull();
+        } elseif ($method === 'GET' && $action === 'last-updated') {
+            $controller->lastUpdated();
         } elseif ($method === 'GET' && $action === 'status') {
             $controller->status();
         } else {
@@ -330,6 +332,52 @@ try {
         }
     }
     
+    // Faculty Dashboard routes
+    elseif ($segments[0] === 'faculty') {
+        $controller = new FacultyDashboardController();
+        $action = $segments[1] ?? null;
+
+        if ($method === 'GET' && $action === 'dashboard-summary') {
+            $controller->dashboardSummary();
+        } elseif ($method === 'GET' && $action === 'schedule') {
+            $controller->schedule();
+        } elseif ($method === 'GET' && $action === 'attendance') {
+            $controller->attendance();
+        } elseif ($method === 'GET' && $action === 'analytics-summary') {
+            $controller->analyticsSummary();
+        } elseif ($method === 'GET' && $action === 'attendance-trend') {
+            $controller->attendanceTrend();
+        } elseif ($method === 'GET' && $action === 'status-breakdown') {
+            $controller->statusBreakdown();
+        } else {
+            Response::notFound('Faculty endpoint not found');
+        }
+    }
+
+    // Admin Analytics routes
+    elseif ($segments[0] === 'admin-analytics') {
+        $controller = new AdminAnalyticsController();
+        $action = $segments[1] ?? null;
+
+        if ($method === 'GET' && $action === 'summary') {
+            $controller->summary();
+        } elseif ($method === 'GET' && $action === 'department-comparison') {
+            $controller->departmentComparison();
+        } elseif ($method === 'GET' && $action === 'department-ranking') {
+            $controller->departmentRanking();
+        } elseif ($method === 'GET' && $action === 'attendance-trend') {
+            $controller->attendanceTrend();
+        } elseif ($method === 'GET' && $action === 'exception-heatmap') {
+            $controller->exceptionHeatmap();
+        } elseif ($method === 'GET' && $action === 'room-utilization') {
+            $controller->roomUtilization();
+        } elseif ($method === 'GET' && $action === 'faculty-performance') {
+            $controller->facultyPerformance();
+        } else {
+            Response::notFound('Admin analytics endpoint not found');
+        }
+    }
+
     // Health check
     elseif ($segments[0] === 'health' && $method === 'GET') {
         Response::success([

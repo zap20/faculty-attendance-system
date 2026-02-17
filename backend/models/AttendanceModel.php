@@ -108,6 +108,7 @@ class AttendanceModel extends BaseModel {
         $sql = "
             SELECT 
                 COUNT(DISTINCT a.FacultyID) as TotalPresent,
+                COUNT(*) as TotalRecords,
                 SUM(CASE WHEN a.AttendanceStatus = 'Present' THEN 1 ELSE 0 END) as OnTime,
                 SUM(CASE WHEN a.AttendanceStatus = 'Late' THEN 1 ELSE 0 END) as Late,
                 SUM(CASE WHEN a.AttendanceStatus = 'No Schedule' THEN 1 ELSE 0 END) as NoSchedule,

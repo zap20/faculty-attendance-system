@@ -64,9 +64,10 @@ class DepartmentHeadController {
         $totalFaculty = $this->facultyModel->count(['DepartmentID' => $departmentId]);
 
         $dayOfWeek = date('l', strtotime($date));
-        $scheduledToday = $this->scheduleModel->countScheduledFaculty($dayOfWeek, $departmentId);
+        $scheduledToday = $this->scheduleModel->countScheduledSessions($dayOfWeek, $departmentId);
         $totalPresent = (int) ($summary['TotalPresent'] ?? 0);
-        $absent = max(0, $scheduledToday - $totalPresent);
+        $totalRecords = (int) ($summary['TotalRecords'] ?? 0);
+        $absent = max(0, $scheduledToday - $totalRecords);
 
         $weekFrom = date('Y-m-d', strtotime($date . ' -6 days'));
         $weekTo = $date;

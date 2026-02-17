@@ -60,12 +60,6 @@ class AppDrawer extends StatelessWidget {
         () => onItemSelected?.call('dept_head_schedules'),
       ),
       _buildDrawerItem(
-        'Attendance Analytics',
-        Icons.analytics,
-        currentScreen == 'dept_head_analytics',
-        () => onItemSelected?.call('dept_head_analytics'),
-      ),
-      _buildDrawerItem(
         'Reports',
         Icons.assessment,
         currentScreen == 'dept_head_reports',

@@ -104,6 +104,26 @@ class ScheduleModel extends BaseModel {
         return (int) ($row['cnt'] ?? 0);
     }
 
+    public function countScheduledSessions(string $dayOfWeek, $departmentId = null): int {
+        $sql = "
+            SELECT COUNT(*) as cnt
+            FROM schedules s
+            JOIN faculties f ON s.FacultyID = f.FacultyID
+            WHERE s.DayOfWeek = ?
+        ";
+        $params = [$dayOfWeek];
+
+        if ($departmentId) {
+            $sql .= " AND f.DepartmentID = ?";
+            $params[] = $departmentId;
+        }
+
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch();
+        return (int) ($row['cnt'] ?? 0);
+    }
+
     public function findByFacultyAndDay($facultyId, string $dayOfWeek): array {
         $stmt = $this->db->prepare("
             SELECT s.*, 

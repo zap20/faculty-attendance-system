@@ -87,8 +87,10 @@ class AuthProvider with ChangeNotifier {
       _status = AuthStatus.authenticated;
       _isOfflineSession = false;
 
-      // Save credentials locally for offline login
-      await _saveLocalCredentials(username, password, _user!);
+      // Save credentials locally for offline login (mobile only)
+      if (!kIsWeb) {
+        await _saveLocalCredentials(username, password, _user!);
+      }
 
       // Pull ALL data from MySQL to local Sqflite (fire-and-forget)
       if (!kIsWeb) {
@@ -104,7 +106,13 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return false;
     } catch (e) {
-      // Network error — try offline login
+      // Network error — try offline login (mobile only, Sqflite not available on web)
+      if (kIsWeb) {
+        _error = 'Cannot connect to server. Please check your connection.';
+        _status = AuthStatus.unauthenticated;
+        notifyListeners();
+        return false;
+      }
       debugPrint('[Auth] Online login failed: $e — trying offline...');
       return await _offlineLogin(username, password);
     }
@@ -112,12 +120,6 @@ class AuthProvider with ChangeNotifier {
 
   // Offline login using locally stored credentials
   Future<bool> _offlineLogin(String username, String password) async {
-    if (kIsWeb) {
-      _error = 'Cannot login offline on web. Please check your internet connection.';
-      _status = AuthStatus.unauthenticated;
-      notifyListeners();
-      return false;
-    }
     try {
       final db = DatabaseHelper();
       final database = await db.database;
@@ -189,7 +191,6 @@ class AuthProvider with ChangeNotifier {
 
   // Save credentials locally for offline login
   Future<void> _saveLocalCredentials(String username, String password, UserModel user) async {
-    if (kIsWeb) return; // sqflite not available on web
     try {
       final db = DatabaseHelper();
       final database = await db.database;

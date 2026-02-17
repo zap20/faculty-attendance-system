@@ -232,6 +232,24 @@ class SyncController {
     }
 
     /**
+     * GET /api/sync/last-updated
+     * Returns the latest modification timestamp for key tables.
+     * Lightweight endpoint for change-detection polling.
+     */
+    public function lastUpdated(): void {
+        Auth::requireAuth();
+
+        $stmt = $this->db->prepare("SELECT MAX(UpdatedAt) as lastUpdated FROM ATTENDANCES");
+        $stmt->execute();
+        $row = $stmt->fetch();
+
+        Response::success([
+            'attendances' => $row['lastUpdated'] ?? null,
+            'serverTime' => date('c'),
+        ]);
+    }
+
+    /**
      * GET /api/sync/status
      * Returns sync status info (record counts per table).
      */

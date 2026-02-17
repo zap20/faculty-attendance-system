@@ -9,10 +9,11 @@ class AppConfig {
   
   static String get apiBaseUrl {
     if (kIsWeb) {
-      return 'https://facultyattendace.infinityfree.me/api/index.php';
+      return 'http://localhost:8000/api/index.php';
     } else {
-      // For mobile app accessing the same domain
-      return 'https://facultyattendace.infinityfree.me/api/index.php';
+      // For real mobile devices, use your computer's IP address
+      //return 'http://192.168.0.6:8000/api/index.php';
+      return 'http://10.5.15.59:8000/api/index.php';
     }
   }
 
