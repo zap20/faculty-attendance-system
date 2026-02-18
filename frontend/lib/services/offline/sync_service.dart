@@ -78,6 +78,10 @@ class SyncService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Refresh pending count before push
+      await _updatePendingCount();
+      debugPrint('[SyncService] Pending before push: $_pendingCount');
+
       final pushCount = await _pushPhase();
       debugPrint('[SyncService] Push phase complete: $pushCount records pushed');
       final pullCount = await _pullPhase();
@@ -86,6 +90,9 @@ class SyncService extends ChangeNotifier {
 
       _status = SyncStatus.success;
       _lastMessage = 'Synced: pushed $pushCount, pulled $pullCount records';
+      if (_pendingCount > 0) {
+        _lastMessage += ' ($_pendingCount still pending)';
+      }
       debugPrint('[SyncService] $_lastMessage');
     } catch (e, stackTrace) {
       _status = SyncStatus.error;
@@ -103,13 +110,35 @@ class SyncService extends ChangeNotifier {
   Future<int> _pushPhase() async {
     int totalPushed = 0;
 
+    // Diagnostic: dump ALL attendance records to understand the state
+    try {
+      final db = await _db.database;
+      final allRecords = await db.rawQuery('SELECT AttendanceID, FacultyID, Date, ScheduleID, AttendanceStatus, isSynced, remoteId, deletedAt FROM attendances');
+      debugPrint('[SyncService] === ALL ATTENDANCE RECORDS (${allRecords.length}) ===');
+      for (final r in allRecords) {
+        debugPrint('[SyncService]   id=${r['AttendanceID']}, faculty=${r['FacultyID']}, date=${r['Date']}, sched=${r['ScheduleID']}, status=${r['AttendanceStatus']}, synced=${r['isSynced']}, remote=${r['remoteId']}, deleted=${r['deletedAt']}');
+      }
+      final unsyncedRaw = await db.rawQuery('SELECT * FROM attendances WHERE isSynced = 0 AND deletedAt IS NULL');
+      debugPrint('[SyncService] === UNSYNCED RAW QUERY: ${unsyncedRaw.length} records ===');
+      for (final r in unsyncedRaw) {
+        debugPrint('[SyncService]   UNSYNCED: id=${r['AttendanceID']}, faculty=${r['FacultyID']}, date=${r['Date']}, status=${r['AttendanceStatus']}');
+      }
+    } catch (e) {
+      debugPrint('[SyncService] Diagnostic query failed: $e');
+    }
+
     // Only push attendance records (other tables are server-managed)
     final unsyncedAttendances = await _db.getUnsyncedRecords('attendances');
+    debugPrint('[SyncService] Found ${unsyncedAttendances.length} unsynced attendance records');
     if (unsyncedAttendances.isEmpty) return 0;
 
-    debugPrint('[SyncService] Pushing ${unsyncedAttendances.length} attendance records');
+    // Log each record for debugging
+    for (final r in unsyncedAttendances) {
+      debugPrint('[SyncService] Unsynced record: id=${r['AttendanceID']}, faculty=${r['FacultyID']}, date=${r['Date']}, schedule=${r['ScheduleID']}, status=${r['AttendanceStatus']}, isSynced=${r['isSynced']}');
+    }
 
     final pushData = unsyncedAttendances.map((r) => LocalAttendance.toApiJson(r)).toList();
+    debugPrint('[SyncService] Push payload: $pushData');
 
     try {
       final response = await ApiService.post('/sync/push', body: {
@@ -117,30 +146,45 @@ class SyncService extends ChangeNotifier {
         'records': pushData,
       });
 
-      final results = response['data'];
-      if (results is Map && results['synced'] is List) {
-        final syncedIds = (results['synced'] as List).cast<Map<String, dynamic>>();
-        final db = await _db.database;
+      debugPrint('[SyncService] Push response: $response');
 
-        await db.transaction((txn) async {
-          for (final item in syncedIds) {
-            final localId = item['localId'];
-            final remoteId = item['remoteId'];
-            if (localId != null) {
-              await txn.update(
-                'attendances',
-                {
-                  'isSynced': 1,
-                  'remoteId': remoteId,
-                  'localUpdatedAt': DateTime.now().toIso8601String(),
-                },
-                where: 'AttendanceID = ?',
-                whereArgs: [localId],
-              );
-              totalPushed++;
+      final results = response['data'];
+      if (results is Map) {
+        // Log any errors from the server
+        if (results['errors'] is List && (results['errors'] as List).isNotEmpty) {
+          debugPrint('[SyncService] Push errors from server: ${results['errors']}');
+        }
+
+        if (results['synced'] is List) {
+          final syncedIds = (results['synced'] as List).cast<Map<String, dynamic>>();
+          debugPrint('[SyncService] Server synced ${syncedIds.length} records');
+          final db = await _db.database;
+
+          await db.transaction((txn) async {
+            for (final item in syncedIds) {
+              final localId = item['localId'];
+              final remoteId = item['remoteId'];
+              debugPrint('[SyncService] Marking synced: localId=$localId, remoteId=$remoteId');
+              if (localId != null) {
+                await txn.update(
+                  'attendances',
+                  {
+                    'isSynced': 1,
+                    'remoteId': remoteId,
+                    'localUpdatedAt': DateTime.now().toIso8601String(),
+                  },
+                  where: 'AttendanceID = ?',
+                  whereArgs: [localId],
+                );
+                totalPushed++;
+              }
             }
-          }
-        });
+          });
+        } else {
+          debugPrint('[SyncService] No synced list in response data: $results');
+        }
+      } else {
+        debugPrint('[SyncService] Unexpected response data type: ${results.runtimeType}');
       }
 
       await _db.updateLastPushTimestamp('attendances');
@@ -198,7 +242,73 @@ class SyncService extends ChangeNotifier {
 
         if (id == null) continue;
 
-        // Check for conflict
+        // For attendances, match by remoteId to avoid colliding with local auto-increment IDs
+        if (config.tableName == 'attendances') {
+          final remoteAttId = remoteMap['AttendanceID'];
+          if (remoteAttId == null) continue;
+
+          // Check if we already have this server record (by remoteId)
+          final existingByRemote = await txn.query(
+            'attendances',
+            where: 'remoteId = ?',
+            whereArgs: [remoteAttId],
+          );
+
+          if (existingByRemote.isNotEmpty) {
+            final localRow = existingByRemote.first;
+            final localSynced = (localRow['isSynced'] as int?) ?? 1;
+
+            // Don't overwrite local unsynced changes
+            if (localSynced == 0) {
+              debugPrint('[SyncService] Skipping pull for attendance remoteId=$remoteAttId — local has unsynced changes');
+              continue;
+            }
+
+            // Update existing synced record
+            localMap['remoteId'] = remoteAttId;
+            await txn.update('attendances', localMap,
+              where: 'AttendanceID = ?',
+              whereArgs: [localRow['AttendanceID']],
+            );
+          } else {
+            // Check if there's a local unsynced record for the same composite key
+            final facultyId = remoteMap['FacultyID'];
+            final date = remoteMap['Date'];
+            final scheduleId = remoteMap['ScheduleID'];
+
+            if (facultyId != null && date != null && scheduleId != null) {
+              final existingLocal = await txn.query(
+                'attendances',
+                where: 'FacultyID = ? AND Date = ? AND ScheduleID = ? AND deletedAt IS NULL',
+                whereArgs: [facultyId, date, scheduleId],
+              );
+
+              if (existingLocal.isNotEmpty) {
+                // Record exists locally for same composite key — update it with server data and mark synced
+                final localRow = existingLocal.first;
+                localMap['remoteId'] = remoteAttId;
+                localMap['isSynced'] = 1;
+                await txn.update('attendances', localMap,
+                  where: 'AttendanceID = ?',
+                  whereArgs: [localRow['AttendanceID']],
+                );
+                debugPrint('[SyncService] Updated local attendance (${localRow['AttendanceID']}) with server data, remoteId=$remoteAttId');
+                count++;
+                continue;
+              }
+            }
+
+            // New record from server — insert with remoteId
+            localMap['remoteId'] = remoteAttId;
+            // Remove AttendanceID to let SQLite auto-increment
+            localMap.remove('AttendanceID');
+            await txn.insert('attendances', localMap, conflictAlgorithm: ConflictAlgorithm.ignore);
+          }
+          count++;
+          continue;
+        }
+
+        // Non-attendance tables: match by primary key as before
         final existing = await txn.query(
           config.tableName,
           where: '$pk = ?',
@@ -216,7 +326,6 @@ class SyncService extends ChangeNotifier {
             final localTime = DateTime.tryParse(localUpdated);
             final remoteTime = DateTime.tryParse(remoteUpdated);
             if (localTime != null && remoteTime != null && localTime.isAfter(remoteTime)) {
-              // Local wins — skip this remote record
               debugPrint('[SyncService] Conflict: local wins for ${config.tableName}.$pk=$id');
               continue;
             }
@@ -231,14 +340,9 @@ class SyncService extends ChangeNotifier {
               whereArgs: [id],
             );
           } else {
-            // Remote wins or no conflict
             await txn.update(config.tableName, localMap, where: '$pk = ?', whereArgs: [id]);
           }
         } else {
-          // New record from server
-          if (config.tableName == 'attendances') {
-            localMap['remoteId'] = remoteMap['AttendanceID'];
-          }
           await txn.insert(config.tableName, localMap, conflictAlgorithm: ConflictAlgorithm.replace);
         }
         count++;
@@ -337,6 +441,35 @@ class SyncService extends ChangeNotifier {
       _isSyncing = false;
       await _updatePendingCount();
       notifyListeners();
+    }
+  }
+
+  /// Diagnose pending records — returns details about what's stuck
+  Future<List<Map<String, dynamic>>> getPendingDetails() async {
+    try {
+      return await _db.getUnsyncedRecords('attendances');
+    } catch (e) {
+      debugPrint('[SyncService] Error getting pending details: $e');
+      return [];
+    }
+  }
+
+  /// Clear all stuck pending records by marking them as synced.
+  /// Use this when records are stuck and can't be pushed (e.g. orphaned records).
+  Future<int> clearStuckPending() async {
+    try {
+      final db = await _db.database;
+      final count = await db.update(
+        'attendances',
+        {'isSynced': 1, 'localUpdatedAt': DateTime.now().toIso8601String()},
+        where: 'isSynced = 0 AND deletedAt IS NULL',
+      );
+      await _updatePendingCount();
+      debugPrint('[SyncService] Cleared $count stuck pending records');
+      return count;
+    } catch (e) {
+      debugPrint('[SyncService] Error clearing stuck pending: $e');
+      return 0;
     }
   }
 

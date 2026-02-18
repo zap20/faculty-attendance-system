@@ -180,102 +180,107 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 children: [
                   Text('Generate Report', style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 16),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.end,
-                    children: [
-                      // Report type dropdown
-                      SizedBox(
-                        width: 280,
-                        child: DropdownButtonFormField<String>(
-                          value: _reportType,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Report Type',
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                          ),
-                          items: _reportTypes.map((t) => DropdownMenuItem(
-                            value: t['value'],
-                            child: Text(t['label']!, overflow: TextOverflow.ellipsis),
-                          )).toList(),
-                          onChanged: (v) => setState(() {
-                            _reportType = v ?? 'daily';
-                            _reportData = {};
-                          }),
-                        ),
-                      ),
-
-                      // Date picker
-                      if (_reportType == 'daily')
+                  LayoutBuilder(builder: (context, constraints) {
+                    final isMobile = constraints.maxWidth < 600;
+                    final fieldWidth = isMobile ? constraints.maxWidth : 280.0;
+                    final smallFieldWidth = isMobile ? (constraints.maxWidth - 16) / 2 : 200.0;
+                    return Wrap(
+                      spacing: 16,
+                      runSpacing: 12,
+                      crossAxisAlignment: WrapCrossAlignment.end,
+                      children: [
+                        // Report type dropdown
                         SizedBox(
-                          width: 220,
-                          child: InkWell(
-                            onTap: _pickSingleDate,
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Date',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                                suffixIcon: Icon(Icons.calendar_today, size: 18),
-                              ),
-                              child: Text(DateFormat('MMM d, yyyy').format(_singleDate)),
-                            ),
-                          ),
-                        )
-                      else
-                        SizedBox(
-                          width: 300,
-                          child: InkWell(
-                            onTap: _pickDateRange,
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: 'Date Range',
-                                border: OutlineInputBorder(),
-                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                                suffixIcon: Icon(Icons.date_range, size: 18),
-                              ),
-                              child: Text('${DateFormat('MMM d').format(_fromDate)} — ${DateFormat('MMM d, yyyy').format(_toDate)}'),
-                            ),
-                          ),
-                        ),
-
-                      // Status filter (for daily & exceptions)
-                      if (_reportType == 'daily' || _reportType == 'exceptions')
-                        SizedBox(
-                          width: 200,
+                          width: fieldWidth,
                           child: DropdownButtonFormField<String>(
-                            value: _statusFilter,
+                            value: _reportType,
                             isExpanded: true,
                             decoration: const InputDecoration(
-                              labelText: 'Status Filter',
+                              labelText: 'Report Type',
                               border: OutlineInputBorder(),
                               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
                             ),
-                            items: [
-                              const DropdownMenuItem<String>(value: null, child: Text('All')),
-                              ..._statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))),
-                            ],
-                            onChanged: (v) => setState(() => _statusFilter = v),
+                            items: _reportTypes.map((t) => DropdownMenuItem(
+                              value: t['value'],
+                              child: Text(t['label']!, overflow: TextOverflow.ellipsis),
+                            )).toList(),
+                            onChanged: (v) => setState(() {
+                              _reportType = v ?? 'daily';
+                              _reportData = {};
+                            }),
                           ),
                         ),
 
-                      // Generate button
-                      SizedBox(
-                        height: 48,
-                        child: ElevatedButton.icon(
-                          onPressed: _loading ? null : _loadReport,
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('Generate'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
+                        // Date picker
+                        if (_reportType == 'daily')
+                          SizedBox(
+                            width: smallFieldWidth,
+                            child: InkWell(
+                              onTap: _pickSingleDate,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Date',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                                  suffixIcon: Icon(Icons.calendar_today, size: 18),
+                                ),
+                                child: Text(DateFormat('MMM d, yyyy').format(_singleDate)),
+                              ),
+                            ),
+                          )
+                        else
+                          SizedBox(
+                            width: isMobile ? fieldWidth : 300.0,
+                            child: InkWell(
+                              onTap: _pickDateRange,
+                              child: InputDecorator(
+                                decoration: const InputDecoration(
+                                  labelText: 'Date Range',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                                  suffixIcon: Icon(Icons.date_range, size: 18),
+                                ),
+                                child: Text('${DateFormat('MMM d').format(_fromDate)} — ${DateFormat('MMM d, yyyy').format(_toDate)}'),
+                              ),
+                            ),
+                          ),
+
+                        // Status filter (for daily & exceptions)
+                        if (_reportType == 'daily' || _reportType == 'exceptions')
+                          SizedBox(
+                            width: smallFieldWidth,
+                            child: DropdownButtonFormField<String>(
+                              value: _statusFilter,
+                              isExpanded: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Status Filter',
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                              ),
+                              items: [
+                                const DropdownMenuItem<String>(value: null, child: Text('All')),
+                                ..._statusOptions.map((s) => DropdownMenuItem(value: s, child: Text(s))),
+                              ],
+                              onChanged: (v) => setState(() => _statusFilter = v),
+                            ),
+                          ),
+
+                        // Generate button
+                        SizedBox(
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            onPressed: _loading ? null : _loadReport,
+                            icon: const Icon(Icons.play_arrow),
+                            label: const Text('Generate'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue,
+                              foregroundColor: Colors.white,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    );
+                  }),
                 ],
               ),
             ),
@@ -310,13 +315,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
     // Export buttons
     final exportRow = Padding(
       padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
+      child: Wrap(
+        spacing: 12,
+        runSpacing: 8,
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           Text(
             _reportTypes.firstWhere((t) => t['value'] == _reportType)['label'] ?? '',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
-          const Spacer(),
           OutlinedButton.icon(
             onPressed: _exportCsv,
             icon: const Icon(Icons.download, size: 18),

@@ -121,15 +121,6 @@ class _DepartmentHeadDashboardScreenState extends State<DepartmentHeadDashboardS
               }
             },
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: Text(
-                authProvider.user?.username ?? '',
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ),
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => authProvider.logout(),
@@ -224,12 +215,20 @@ class _DepartmentHeadOverviewViewState extends State<_DepartmentHeadOverviewView
           Card(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const Icon(Icons.date_range, size: 20),
-                  const SizedBox(width: 8),
-                  Text('${DateFormat('MMM d, yyyy').format(_fromDate)}  —  ${DateFormat('MMM d, yyyy').format(_toDate)}', style: const TextStyle(fontWeight: FontWeight.w600)),
-                  const Spacer(),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.date_range, size: 20),
+                      const SizedBox(width: 8),
+                      Text('${DateFormat('MMM d, yyyy').format(_fromDate)}  —  ${DateFormat('MMM d, yyyy').format(_toDate)}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
                   OutlinedButton.icon(
                     onPressed: _pickDateRange,
                     icon: const Icon(Icons.edit_calendar, size: 18),
@@ -281,30 +280,36 @@ class _DepartmentHeadOverviewViewState extends State<_DepartmentHeadOverviewView
   Widget _buildAnalyticsKpiCards(Map<String, dynamic> analytics, Map<dynamic, dynamic> dashboardKpis) {
     final aKpis = (analytics['kpis'] as Map?) ?? {};
 
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        _StatCard(title: 'Total Faculty', value: '${aKpis['totalFaculty'] ?? 0}', icon: Icons.people, color: Colors.blue),
-        _StatCard(title: 'Scheduled Sessions', value: '${aKpis['totalScheduledSessions'] ?? 0}', icon: Icons.calendar_today, color: Colors.indigo),
-        _StatCardDual(
-          title: 'Present',
-          value: '${aKpis['totalPresent'] ?? 0}',
-          todayValue: '${dashboardKpis['presentToday'] ?? 0}',
-          icon: Icons.check_circle,
-          color: Colors.green,
-        ),
-        _StatCardDual(
-          title: 'Late',
-          value: '${aKpis['totalLate'] ?? 0}',
-          todayValue: '${dashboardKpis['lateToday'] ?? 0}',
-          icon: Icons.access_time,
-          color: Colors.orange,
-        ),
-        _StatCard(title: 'Absent Today', value: '${dashboardKpis['absentToday'] ?? 0}', icon: Icons.cancel, color: Colors.red),
-        _StatCard(title: 'Attendance Rate', value: '${aKpis['attendanceRate'] ?? 0}%', icon: Icons.trending_up, color: Colors.teal),
-      ],
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      final isMobile = constraints.maxWidth < 600;
+      final cols = isMobile ? 2 : (constraints.maxWidth < 900 ? 3 : 6);
+      const spacing = 12.0;
+      final cardWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
+      return Wrap(
+        spacing: spacing,
+        runSpacing: spacing,
+        children: [
+          SizedBox(width: cardWidth, child: _StatCard(title: 'Total Faculty', value: '${aKpis['totalFaculty'] ?? 0}', icon: Icons.people, color: Colors.blue)),
+          SizedBox(width: cardWidth, child: _StatCard(title: 'Scheduled Sessions', value: '${aKpis['totalScheduledSessions'] ?? 0}', icon: Icons.calendar_today, color: Colors.indigo)),
+          SizedBox(width: cardWidth, child: _StatCardDual(
+            title: 'Present',
+            value: '${aKpis['totalPresent'] ?? 0}',
+            todayValue: '${dashboardKpis['presentToday'] ?? 0}',
+            icon: Icons.check_circle,
+            color: Colors.green,
+          )),
+          SizedBox(width: cardWidth, child: _StatCardDual(
+            title: 'Late',
+            value: '${aKpis['totalLate'] ?? 0}',
+            todayValue: '${dashboardKpis['lateToday'] ?? 0}',
+            icon: Icons.access_time,
+            color: Colors.orange,
+          )),
+          SizedBox(width: cardWidth, child: _StatCard(title: 'Absent Today', value: '${dashboardKpis['absentToday'] ?? 0}', icon: Icons.cancel, color: Colors.red)),
+          SizedBox(width: cardWidth, child: _StatCard(title: 'Attendance Rate', value: '${aKpis['attendanceRate'] ?? 0}%', icon: Icons.trending_up, color: Colors.teal)),
+        ],
+      );
+    });
   }
 
   Widget _buildAnalyticsStatusPieChart(Map<String, dynamic> analytics) {
@@ -734,58 +739,62 @@ class _DepartmentHeadFacultyViewState extends State<_DepartmentHeadFacultyView> 
                   children: [
                     Text('Create Faculty (with user account)', style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 16),
-                    Wrap(
-                      spacing: 16,
-                      runSpacing: 16,
-                      children: [
-                        SizedBox(
-                          width: 280,
-                          child: TextFormField(
-                            controller: _nameController,
-                            decoration: const InputDecoration(labelText: 'Faculty Name'),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                    LayoutBuilder(builder: (context, constraints) {
+                      final isMobile = constraints.maxWidth < 600;
+                      final fieldWidth = isMobile ? constraints.maxWidth : 260.0;
+                      return Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          SizedBox(
+                            width: fieldWidth,
+                            child: TextFormField(
+                              controller: _nameController,
+                              decoration: const InputDecoration(labelText: 'Faculty Name'),
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                            ),
                           ),
-                        ),
-                        SizedBox(
-                          width: 220,
-                          child: TextFormField(
-                            controller: _positionController,
-                            decoration: const InputDecoration(labelText: 'Position'),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          SizedBox(
+                            width: isMobile ? fieldWidth : 220.0,
+                            child: TextFormField(
+                              controller: _positionController,
+                              decoration: const InputDecoration(labelText: 'Position'),
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                            ),
                           ),
-                        ),
-                        SizedBox(
-                          width: 220,
-                          child: TextFormField(
-                            controller: _statusController,
-                            decoration: const InputDecoration(labelText: 'Employment Status'),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          SizedBox(
+                            width: isMobile ? fieldWidth : 220.0,
+                            child: TextFormField(
+                              controller: _statusController,
+                              decoration: const InputDecoration(labelText: 'Employment Status'),
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                            ),
                           ),
-                        ),
-                        SizedBox(
-                          width: 260,
-                          child: TextFormField(
-                            controller: _contactController,
-                            decoration: const InputDecoration(labelText: 'Contact Information'),
+                          SizedBox(
+                            width: fieldWidth,
+                            child: TextFormField(
+                              controller: _contactController,
+                              decoration: const InputDecoration(labelText: 'Contact Information'),
+                            ),
                           ),
-                        ),
-                        SizedBox(
-                          width: 220,
-                          child: TextFormField(
-                            controller: _usernameController,
-                            decoration: const InputDecoration(labelText: 'Username'),
-                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                          SizedBox(
+                            width: isMobile ? fieldWidth : 220.0,
+                            child: TextFormField(
+                              controller: _usernameController,
+                              decoration: const InputDecoration(labelText: 'Username'),
+                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                            ),
                           ),
-                        ),
-                        SizedBox(
-                          width: 220,
-                          child: TextFormField(
-                            controller: _tempPasswordController,
-                            decoration: const InputDecoration(labelText: 'Temp Password (optional)'),
+                          SizedBox(
+                            width: isMobile ? fieldWidth : 220.0,
+                            child: TextFormField(
+                              controller: _tempPasswordController,
+                              decoration: const InputDecoration(labelText: 'Temp Password (optional)'),
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      );
+                    }),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: _submit,
@@ -1366,14 +1375,16 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                   children: [
                     Text('Create Schedule', style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 16),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Wrap(
+                    LayoutBuilder(builder: (context, constraints) {
+                      final isMobile = constraints.maxWidth < 600;
+                      final fieldWidth = isMobile ? constraints.maxWidth : 260.0;
+                      final smallFieldWidth = isMobile ? (constraints.maxWidth - 16) / 2 : 160.0;
+                      return Wrap(
                         spacing: 16,
                         runSpacing: 16,
                         children: [
                           SizedBox(
-                            width: 260,
+                            width: fieldWidth,
                             child: DropdownButtonFormField<String>(
                               value: _facultyId,
                               isExpanded: true,
@@ -1386,7 +1397,7 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                             ),
                           ),
                           SizedBox(
-                            width: 260,
+                            width: fieldWidth,
                             child: DropdownButtonFormField<int>(
                               value: _subjectId,
                               isExpanded: true,
@@ -1399,7 +1410,7 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                             ),
                           ),
                           SizedBox(
-                            width: 260,
+                            width: fieldWidth,
                             child: DropdownButtonFormField<int>(
                               value: _roomId,
                               isExpanded: true,
@@ -1412,7 +1423,7 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                             ),
                           ),
                           SizedBox(
-                            width: 180,
+                            width: isMobile ? fieldWidth : 180.0,
                             child: DropdownButtonFormField<String>(
                               value: _dayOfWeek,
                               isExpanded: true,
@@ -1430,7 +1441,7 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                             ),
                           ),
                           SizedBox(
-                            width: 160,
+                            width: smallFieldWidth,
                             child: TextFormField(
                               controller: _startTimeController,
                               decoration: const InputDecoration(labelText: 'Start (HH:MM:SS)'),
@@ -1438,7 +1449,7 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                             ),
                           ),
                           SizedBox(
-                            width: 160,
+                            width: smallFieldWidth,
                             child: TextFormField(
                               controller: _endTimeController,
                               decoration: const InputDecoration(labelText: 'End (HH:MM:SS)'),
@@ -1446,8 +1457,8 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
                             ),
                           ),
                         ],
-                      ),
-                    ),
+                      );
+                    }),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: _create,
@@ -1462,39 +1473,37 @@ class _DepartmentHeadSchedulesViewState extends State<_DepartmentHeadSchedulesVi
           const SizedBox(height: 16),
           Text('Schedules', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              SizedBox(
-                width: 320,
-                child: DropdownButtonFormField<String>(
-                  value: _filterFacultyId,
-                  decoration: const InputDecoration(labelText: 'Filter by Faculty (optional)'),
-                  items: [
-                    DropdownMenuItem<String>(value: null, child: const Text('All Faculty')),
-                    ...provider.faculties.map(
-                      (f) => DropdownMenuItem(
-                        value: f.facultyId,
-                        child: Text('${f.facultyName} (${f.facultyId})'),
-                      ),
+          LayoutBuilder(builder: (context, constraints) {
+            final isMobile = constraints.maxWidth < 600;
+            return SizedBox(
+              width: isMobile ? constraints.maxWidth : 320,
+              child: DropdownButtonFormField<String>(
+                value: _filterFacultyId,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Filter by Faculty (optional)'),
+                items: [
+                  DropdownMenuItem<String>(value: null, child: const Text('All Faculty')),
+                  ...provider.faculties.map(
+                    (f) => DropdownMenuItem(
+                      value: f.facultyId,
+                      child: Text('${f.facultyName} (${f.facultyId})', overflow: TextOverflow.ellipsis),
                     ),
-                  ],
-                  onChanged: (v) async {
-                    setState(() => _filterFacultyId = v);
-                    try {
-                      await context.read<DepartmentHeadProvider>().loadSchedules(facultyId: v);
-                    } catch (e) {
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-                      );
-                    }
-                  },
-                ),
+                  ),
+                ],
+                onChanged: (v) async {
+                  setState(() => _filterFacultyId = v);
+                  try {
+                    await context.read<DepartmentHeadProvider>().loadSchedules(facultyId: v);
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+                    );
+                  }
+                },
               ),
-            ],
-          ),
+            );
+          }),
           const SizedBox(height: 8),
           if (provider.loadingSchedules)
             const Center(child: Padding(padding: EdgeInsets.all(24), child: CircularProgressIndicator()))
@@ -1664,10 +1673,8 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Container(
-        width: 220,
-        height: 110,
-        padding: const EdgeInsets.all(20),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1675,15 +1682,18 @@ class _StatCard extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, color: color, size: 32),
-                Text(
-                  value,
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: color),
-                )
+                Icon(icon, color: color, size: 28),
+                Flexible(
+                  child: Text(
+                    value,
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+            Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 13), overflow: TextOverflow.ellipsis),
           ],
         ),
       ),
@@ -1703,31 +1713,26 @@ class _StatCardDual extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Container(
-        width: 220,
-        height: 110,
-        padding: const EdgeInsets.all(20),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, color: color, size: 22),
-                Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-                const Spacer(),
-                Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                Icon(icon, color: color, size: 20),
+                const SizedBox(width: 6),
+                Expanded(child: Text(title, style: TextStyle(color: Colors.grey[600], fontSize: 13), overflow: TextOverflow.ellipsis)),
+                Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
               ],
             ),
             const SizedBox(height: 6),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const SizedBox(width: 22),
-                Text('$title Today', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-                const Spacer(),
-                Text(todayValue, style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+                const SizedBox(width: 26),
+                Expanded(child: Text('$title Today', style: TextStyle(color: Colors.grey[600], fontSize: 12), overflow: TextOverflow.ellipsis)),
+                Text(todayValue, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color)),
               ],
             ),
           ],

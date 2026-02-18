@@ -11,9 +11,8 @@ class AppConfig {
     if (kIsWeb) {
       return 'http://localhost:8000/api/index.php';
     } else {
-      // For real mobile devices, use your computer's IP address
-      //return 'http://192.168.0.6:8000/api/index.php';
-      return 'http://10.5.15.59:8000/api/index.php';
+      // For mobile devices, use the deployed Hostinger URL
+      return 'https://mintcream-mosquito-931374.hostingersite.com/api/index.php';
     }
   }
 

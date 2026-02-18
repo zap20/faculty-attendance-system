@@ -11,7 +11,6 @@ import '../../models/attendance_model.dart';
 import '../../widgets/app_drawer.dart';
 import '../../widgets/sync_status_widget.dart';
 import '../shared/reports_screen.dart';
-import '../../widgets/auto_refresh_mixin.dart';
 
 class OfficerDashboardScreen extends StatefulWidget {
   const OfficerDashboardScreen({super.key});
@@ -27,7 +26,6 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
-    final user = authProvider.user;
 
     return Scaffold(
       key: _scaffoldKey,
@@ -40,15 +38,6 @@ class _OfficerDashboardScreenState extends State<OfficerDashboardScreen> {
         ),
         actions: [
           if (!kIsWeb) const SyncStatusWidget(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: Text(
-                user?.username ?? 'Officer',
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ),
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => setState(() {}),
@@ -161,14 +150,12 @@ class _QRScannerViewState extends State<QRScannerView> {
       final currentDayOfWeek = dayMap[now.weekday] ?? '';
       final currentDate = now.toIso8601String().split('T')[0];
       
-      // Use offline-first repository for QR attendance
-      final repo = RepositoryProvider();
-      final result = await repo.smartExecute(
-        (r) => r.recordByQR(qrCode: code),
-        operationName: 'QRAttendance',
-      );
+      final result = await DataService.recordAttendanceByQR(code);
 
-      final bool inserted = result['success'] == true;
+      final responseData = result['data'];
+      final bool inserted = responseData is Map<String, dynamic>
+          ? (responseData['inserted'] != false)
+          : true;
       
       setState(() {
         _lastResult = {
@@ -630,7 +617,7 @@ class TodayAttendanceView extends StatefulWidget {
   State<TodayAttendanceView> createState() => _TodayAttendanceViewState();
 }
 
-class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefreshMixin {
+class _TodayAttendanceViewState extends State<TodayAttendanceView> {
   Map<String, List<AttendanceModel>> _weeklyAttendance = {};
   final Map<int, TransformationController> _zoomControllers = {};
   String? _selectedRoom;
@@ -640,12 +627,10 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefr
   void initState() {
     super.initState();
     _loadWeeklyAttendance();
-    startAutoRefresh(_loadWeeklyAttendance);
   }
 
   @override
   void dispose() {
-    stopAutoRefresh();
     for (final c in _zoomControllers.values) {
       c.dispose();
     }
@@ -666,29 +651,42 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefr
   Future<void> _loadWeeklyAttendance() async {
     final now = DateTime.now();
     final startOfWeek = _getStartOfWeek(now);
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
     
     final Map<String, List<AttendanceModel>> weeklyAttendance = {};
     
-    // Fetch attendance for each day of the current week
-    for (int i = 0; i < 7; i++) {
-      final date = startOfWeek.add(Duration(days: i));
-      final dateStr = date.toIso8601String().split('T')[0];
+    try {
+      final repo = RepositoryProvider();
+      final fromStr = startOfWeek.toIso8601String().split('T')[0];
+      final toStr = endOfWeek.toIso8601String().split('T')[0];
       
-      try {
-        final repo = RepositoryProvider();
-        final attendances = await repo.smartExecute(
-          (r) => r.getAttendanceHistory(from: dateStr, to: dateStr),
-          operationName: 'WeeklyAttendance',
-        );
-        weeklyAttendance[dateStr] = attendances;
-      } catch (e) {
+      final allAttendances = await repo.smartExecute(
+        (r) => r.getAttendanceHistory(from: fromStr, to: toStr),
+        operationName: 'LoadWeeklyAttendance',
+      );
+      
+      // Group by date
+      for (int i = 0; i < 7; i++) {
+        final date = startOfWeek.add(Duration(days: i));
+        final dateStr = date.toIso8601String().split('T')[0];
+        weeklyAttendance[dateStr] = allAttendances
+            .where((a) => a.date == dateStr)
+            .toList();
+      }
+    } catch (e) {
+      // Initialize empty days on error
+      for (int i = 0; i < 7; i++) {
+        final date = startOfWeek.add(Duration(days: i));
+        final dateStr = date.toIso8601String().split('T')[0];
         weeklyAttendance[dateStr] = [];
       }
     }
     
-    setState(() {
-      _weeklyAttendance = weeklyAttendance;
-    });
+    if (mounted) {
+      setState(() {
+        _weeklyAttendance = weeklyAttendance;
+      });
+    }
   }
 
   DateTime _getStartOfWeek(DateTime date) {
@@ -759,22 +757,13 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefr
     return time;
   }
 
-  Future<List<dynamic>> _safeLoadSchedulesAndRooms() async {
-    try {
-      return await Future.wait([
-        DataService.getSchedules(),
-        DataService.getRooms(),
-      ]);
-    } catch (e) {
-      debugPrint('[OfficerDashboard] Failed to load schedules/rooms: $e');
-      return [<dynamic>[], <dynamic>[]];
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<dynamic>>(
-      future: _safeLoadSchedulesAndRooms(),
+      future: Future.wait([
+        DataService.getSchedules(),
+        DataService.getRooms(),
+      ]),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -1457,16 +1446,8 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefr
     String? remarks,
   }) async {
     try {
-      final body = <String, dynamic>{
-        'action': action,
-        'facultyId': facultyId,
-        'date': date,
-      };
-      if (scheduleId != null) body['scheduleId'] = scheduleId;
-      if (remarks != null) body['remarks'] = remarks;
-
       final repo = RepositoryProvider();
-      await repo.smartExecute(
+      final result = await repo.smartExecute(
         (r) => r.updateAttendanceStatus(
           action: action,
           facultyId: facultyId,
@@ -1474,13 +1455,15 @@ class _TodayAttendanceViewState extends State<TodayAttendanceView> with AutoRefr
           scheduleId: scheduleId,
           remarks: remarks,
         ),
-        operationName: 'UpdateStatus',
+        operationName: 'UpdateAttendanceStatus',
       );
 
       if (!mounted) return;
+      final isOffline = result['data']?['offline'] == true;
+      final msg = action == 'absent' ? 'Marked as absent' : 'Early out recorded';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(action == 'absent' ? 'Marked as absent' : 'Early out recorded'),
+          content: Text('$msg${isOffline ? ' (offline — will sync later)' : ''}'),
           backgroundColor: Colors.green,
         ),
       );
@@ -2487,15 +2470,6 @@ class _AttendanceReportsViewState extends State<AttendanceReportsView> {
   DateTime _startDate = DateTime.now().subtract(const Duration(days: 7));
   DateTime _endDate = DateTime.now();
 
-  Future<Map<String, dynamic>> _safeLoadReport(DateTime start, DateTime end) async {
-    try {
-      return await DataService.getAttendanceReport(start, end);
-    } catch (e) {
-      debugPrint('[OfficerDashboard] Failed to load report: $e');
-      return {'summary': {}, 'records': []};
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -2537,7 +2511,7 @@ class _AttendanceReportsViewState extends State<AttendanceReportsView> {
         ),
         Expanded(
           child: FutureBuilder<Map<String, dynamic>>(
-            future: _safeLoadReport(_startDate, _endDate),
+            future: DataService.getAttendanceReport(_startDate, _endDate),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());

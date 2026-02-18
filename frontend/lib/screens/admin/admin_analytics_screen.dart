@@ -171,10 +171,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               ),
             ),
             // Department filter
-            SizedBox(
-              width: 220,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 160, maxWidth: 220),
               child: DropdownButtonFormField<int?>(
-                initialValue: _selectedDepartmentId,
+                value: _selectedDepartmentId,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Department',
@@ -192,10 +192,10 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
               ),
             ),
             // Faculty filter
-            SizedBox(
-              width: 220,
+            ConstrainedBox(
+              constraints: const BoxConstraints(minWidth: 160, maxWidth: 220),
               child: DropdownButtonFormField<String?>(
-                initialValue: _selectedFacultyId,
+                value: _selectedFacultyId,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Faculty',
@@ -228,7 +228,9 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
   Widget _buildKpiSection() {
     return LayoutBuilder(builder: (context, constraints) {
       const spacing = 12.0;
-      final cardWidth = (constraints.maxWidth - spacing * 5) / 6;
+      final isMobile = constraints.maxWidth < 600;
+      final cols = isMobile ? 2 : (constraints.maxWidth < 900 ? 3 : 6);
+      final cardWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
       return Wrap(
         spacing: spacing,
         runSpacing: spacing,
@@ -460,14 +462,14 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            const Text('Global Attendance Trend', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
               children: [
-                const Text('Global Attendance Trend', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                const Spacer(),
                 _legendItem(Colors.green, 'Present'),
-                const SizedBox(width: 12),
                 _legendItem(Colors.orange, 'Late'),
-                const SizedBox(width: 12),
                 _legendItem(Colors.red, 'Exceptions'),
               ],
             ),
@@ -781,46 +783,43 @@ class _AdminAnalyticsScreenState extends State<AdminAnalyticsScreen> {
       children: [
         // Most Absences & Most Lates side by side
         LayoutBuilder(builder: (context, constraints) {
-          final halfWidth = (constraints.maxWidth - 16) / 2;
-          return Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              SizedBox(
-                width: halfWidth.clamp(300.0, double.infinity),
-                child: _buildTopListCard(
-                  'Most Absences',
-                  Icons.cancel_outlined,
-                  Colors.red,
-                  topAbsent,
-                  (f) => '${f['absentCount'] ?? 0} absences',
+          final wide = constraints.maxWidth > 700;
+          if (wide) {
+            final halfWidth = (constraints.maxWidth - 16) / 2;
+            return Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                SizedBox(
+                  width: halfWidth,
+                  child: _buildTopListCard('Most Absences', Icons.cancel_outlined, Colors.red, topAbsent, (f) => '${f['absentCount'] ?? 0} absences'),
                 ),
-              ),
-              SizedBox(
-                width: halfWidth.clamp(300.0, double.infinity),
-                child: _buildTopListCard(
-                  'Most Lates',
-                  Icons.access_time,
-                  Colors.orange,
-                  topLate,
-                  (f) => '${f['lateCount'] ?? 0} lates',
+                SizedBox(
+                  width: halfWidth,
+                  child: _buildTopListCard('Most Lates', Icons.access_time, Colors.orange, topLate, (f) => '${f['lateCount'] ?? 0} lates'),
                 ),
-              ),
-            ],
-          );
+              ],
+            );
+          }
+          return Column(children: [
+            _buildTopListCard('Most Absences', Icons.cancel_outlined, Colors.red, topAbsent, (f) => '${f['absentCount'] ?? 0} absences'),
+            const SizedBox(height: 16),
+            _buildTopListCard('Most Lates', Icons.access_time, Colors.orange, topLate, (f) => '${f['lateCount'] ?? 0} lates'),
+          ]);
         }),
         const SizedBox(height: 16),
         // Per-department top 5 cards
         const Text('Faculty Performance by Department (Top 5)', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
         LayoutBuilder(builder: (context, constraints) {
-          final cardWidth = (constraints.maxWidth - 16) / 2;
+          final wide = constraints.maxWidth > 900;
+          final cardWidth = wide ? (constraints.maxWidth - 16) / 2 : constraints.maxWidth;
           return Wrap(
             spacing: 16,
             runSpacing: 16,
             children: grouped.entries.map<Widget>((entry) {
               return SizedBox(
-                width: cardWidth.clamp(400.0, double.infinity),
+                width: cardWidth,
                 child: Card(
                   elevation: 2,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

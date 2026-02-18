@@ -107,15 +107,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
             icon: const Icon(Icons.refresh),
             onPressed: _loadDashboard,
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Center(
-              child: Text(
-                authProvider.user?.username ?? '',
-                style: const TextStyle(fontWeight: FontWeight.w500),
-              ),
-            ),
-          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () => authProvider.logout(),
@@ -170,36 +161,22 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            children: [
-              _buildStatCard(
-                'Total Faculty',
-                '${stats['totalFaculty'] ?? 0}',
-                Icons.people,
-                Colors.blue,
-              ),
-              _buildStatCard(
-                'Departments',
-                '${stats['totalDepartments'] ?? 0}',
-                Icons.business,
-                Colors.purple,
-              ),
-              _buildStatCard(
-                'Present Today',
-                '${stats['presentToday'] ?? 0}',
-                Icons.check_circle,
-                Colors.green,
-              ),
-              _buildStatCard(
-                'Late Today',
-                '${stats['lateToday'] ?? 0}',
-                Icons.access_time,
-                Colors.orange,
-              ),
-            ],
-          ),
+          LayoutBuilder(builder: (context, constraints) {
+            final isMobile = constraints.maxWidth < 600;
+            final cardWidth = isMobile
+                ? (constraints.maxWidth - 16) / 2
+                : (constraints.maxWidth - 48) / 4;
+            return Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                SizedBox(width: cardWidth, child: _buildStatCard('Total Faculty', '${stats['totalFaculty'] ?? 0}', Icons.people, Colors.blue)),
+                SizedBox(width: cardWidth, child: _buildStatCard('Departments', '${stats['totalDepartments'] ?? 0}', Icons.business, Colors.purple)),
+                SizedBox(width: cardWidth, child: _buildStatCard('Present Today', '${stats['presentToday'] ?? 0}', Icons.check_circle, Colors.green)),
+                SizedBox(width: cardWidth, child: _buildStatCard('Late Today', '${stats['lateToday'] ?? 0}', Icons.access_time, Colors.orange)),
+              ],
+            );
+          }),
           const SizedBox(height: 24),
           Text(
             'Quick Actions',
@@ -235,8 +212,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
   Widget _buildStatCard(String title, String value, IconData icon, Color color) {
     return Card(
       child: Container(
-        width: 200,
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -321,8 +297,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text('Department Management', style: Theme.of(context).textTheme.headlineSmall),
                   ElevatedButton.icon(
@@ -389,10 +368,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
                               ],
                             ),
                             const SizedBox(height: 8),
-                            Row(
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
                               children: [
                                 _buildDeptInfoChip(Icons.person, 'Head', dept.departmentHead ?? 'Not Assigned', Colors.blue),
-                                const SizedBox(width: 12),
                                 _buildDeptInfoChip(Icons.school, 'Dean', dept.departmentDean ?? 'Not Assigned', Colors.purple),
                               ],
                             ),
@@ -402,12 +382,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
                       // Stats row
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        child: Row(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
                             _buildDeptStatBadge('${deptFaculties.length}', 'Faculty', Colors.blue),
-                            const SizedBox(width: 12),
                             _buildDeptStatBadge('${deptSubjects.length}', 'Subjects', Colors.orange),
-                            const SizedBox(width: 12),
                             _buildDeptStatBadge('${deptRooms.length}', 'Rooms', Colors.green),
                           ],
                         ),
@@ -546,8 +526,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text('Subject Management', style: Theme.of(context).textTheme.headlineSmall),
                   ElevatedButton.icon(
@@ -662,8 +645,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text('Room Management', style: Theme.of(context).textTheme.headlineSmall),
                   ElevatedButton.icon(
@@ -816,8 +802,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text('Schedule Management', style: Theme.of(context).textTheme.headlineSmall),
                   ElevatedButton.icon(
@@ -856,18 +845,25 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
                           children: [
                             const Icon(Icons.room, size: 24),
                             const SizedBox(width: 8),
-                            Text(
-                              '${room?.roomName ?? "Unknown"} - ${room?.building ?? ""}',
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            Expanded(
+                              child: Text(
+                                '${room?.roomName ?? "Unknown"} - ${room?.building ?? ""}',
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            const Spacer(),
+                            const SizedBox(width: 8),
                             Text('Capacity: ${room?.capacity ?? "-"}'),
                           ],
                         ),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(8.0),
-                        child: Table(
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width - 64),
+                            child: Table(
                           border: TableBorder.all(color: Colors.grey.shade300),
                           defaultVerticalAlignment: TableCellVerticalAlignment.top,
                           columnWidths: const {
@@ -890,6 +886,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
                             ),
                             ..._buildScheduleTableRows(roomData),
                           ],
+                        ),
+                          ),
                         ),
                       ),
                     ],
@@ -997,8 +995,11 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> with AutoRe
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
                     title,

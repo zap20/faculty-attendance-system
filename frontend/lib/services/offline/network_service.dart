@@ -12,7 +12,7 @@ class NetworkService {
   final Connectivity _connectivity = Connectivity();
   final StreamController<bool> _connectionController = StreamController<bool>.broadcast();
 
-  bool _isOnline = kIsWeb ? true : false;
+  bool _isOnline = true;
   bool _initialized = false;
 
   /// Stream of connectivity changes (true = online, false = offline)
@@ -25,13 +25,6 @@ class NetworkService {
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
-
-    // On web, always online — offline-first only applies to mobile
-    if (kIsWeb) {
-      _isOnline = true;
-      debugPrint('[NetworkService] Web platform — always ONLINE');
-      return;
-    }
 
     // Check initial status
     _isOnline = await checkConnection();
@@ -53,7 +46,6 @@ class NetworkService {
 
   /// Check if device has actual internet connectivity
   Future<bool> checkConnection() async {
-    if (kIsWeb) return true;
     try {
       final result = await _connectivity.checkConnectivity();
       final hasConnectivity = result != ConnectivityResult.none;
@@ -68,21 +60,24 @@ class NetworkService {
   /// Verify actual internet access by hitting the API health endpoint
   Future<bool> _verifyInternetAccess() async {
     try {
-      await ApiService.get('/health').timeout(const Duration(seconds: 3));
+      await ApiService.get('/health').timeout(const Duration(seconds: 5));
       return true;
-    } catch (_) {
-      return false;
+    } catch (e) {
+      // If health endpoint doesn't exist, try a simple GET
+      try {
+        await ApiService.get('/departments').timeout(const Duration(seconds: 5));
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
   }
 
-  /// Force offline mode (called when network errors are detected)
+  /// Mark as offline (called by RepositoryProvider on network errors)
   void markOffline() {
-    if (kIsWeb) return; // Web is always online
-    if (_isOnline) {
-      _isOnline = false;
-      _connectionController.add(false);
-      debugPrint('[NetworkService] Forced OFFLINE due to network error');
-    }
+    _isOnline = false;
+    _connectionController.add(false);
+    debugPrint('[NetworkService] Manually marked OFFLINE');
   }
 
   void dispose() {

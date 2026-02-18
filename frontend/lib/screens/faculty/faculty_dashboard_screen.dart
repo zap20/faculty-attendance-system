@@ -259,7 +259,9 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> with Au
             else ...[
               LayoutBuilder(builder: (context, constraints) {
                 const spacing = 12.0;
-                final cardWidth = (constraints.maxWidth - spacing * 3) / 4;
+                final isMobile = constraints.maxWidth < 600;
+                final cols = isMobile ? 2 : 4;
+                final cardWidth = (constraints.maxWidth - spacing * (cols - 1)) / cols;
                 return Wrap(
                   spacing: spacing,
                   runSpacing: spacing,
@@ -366,10 +368,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> with Au
 
             // Analytics Charts
             const SizedBox(height: 20),
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text('My Analytics', style: Theme.of(context).textTheme.headlineSmall),
-                const Spacer(),
                 OutlinedButton.icon(
                   onPressed: _pickDateRange,
                   icon: const Icon(Icons.date_range, size: 16),
@@ -383,15 +388,23 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> with Au
             else ...[
               // Pie + Trend side by side
               LayoutBuilder(builder: (context, constraints) {
-                final halfWidth = (constraints.maxWidth - 16) / 2;
-                return Wrap(
-                  spacing: 16,
-                  runSpacing: 16,
-                  children: [
-                    SizedBox(width: halfWidth.clamp(300.0, double.infinity), child: _buildStatusPieChart()),
-                    SizedBox(width: halfWidth.clamp(300.0, double.infinity), child: _buildTrendLineChart()),
-                  ],
-                );
+                final wide = constraints.maxWidth > 700;
+                if (wide) {
+                  final halfWidth = (constraints.maxWidth - 16) / 2;
+                  return Wrap(
+                    spacing: 16,
+                    runSpacing: 16,
+                    children: [
+                      SizedBox(width: halfWidth, child: _buildStatusPieChart()),
+                      SizedBox(width: halfWidth, child: _buildTrendLineChart()),
+                    ],
+                  );
+                }
+                return Column(children: [
+                  _buildStatusPieChart(),
+                  const SizedBox(height: 16),
+                  _buildTrendLineChart(),
+                ]);
               }),
               const SizedBox(height: 16),
               _buildSubjectBarChart(),
@@ -908,10 +921,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> with Au
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text('Attendance History', style: Theme.of(context).textTheme.headlineSmall),
-                const Spacer(),
                 OutlinedButton.icon(
                   onPressed: _pickDateRange,
                   icon: const Icon(Icons.date_range, size: 16),
@@ -939,10 +955,13 @@ class _FacultyDashboardScreenState extends State<FacultyDashboardScreen> with Au
                         color: statusColor, size: 20,
                       ),
                     ),
-                    title: Row(children: [
-                      Text(a['SubjectName'] ?? 'N/A', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                      if (a['CourseCode'] != null) Text(' (${a['CourseCode']})', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                    ]),
+                    title: Text.rich(
+                      TextSpan(children: [
+                        TextSpan(text: a['SubjectName'] ?? 'N/A', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        if (a['CourseCode'] != null) TextSpan(text: ' (${a['CourseCode']})', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      ]),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [

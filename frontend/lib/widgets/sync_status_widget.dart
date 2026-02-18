@@ -34,6 +34,65 @@ class _SyncStatusWidgetState extends State<SyncStatusWidget> {
     super.dispose();
   }
 
+  void _showSyncOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Sync Options', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+              Text('${_syncService.pendingCount} pending records', style: TextStyle(color: Colors.grey[600])),
+              const SizedBox(height: 12),
+              ListTile(
+                leading: const Icon(Icons.sync, color: Colors.blue),
+                title: const Text('Retry Sync'),
+                subtitle: const Text('Push pending records to server'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _syncService.syncAll();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(_syncService.lastMessage), backgroundColor: _syncService.status == SyncStatus.success ? Colors.green : Colors.red),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh, color: Colors.orange),
+                title: const Text('Full Resync'),
+                subtitle: const Text('Push pending, clear local data, re-download everything'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await _syncService.fullResync();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(_syncService.lastMessage), backgroundColor: _syncService.status == SyncStatus.success ? Colors.green : Colors.red),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.delete_sweep, color: Colors.red),
+                title: const Text('Clear Stuck Pending'),
+                subtitle: const Text('Mark all pending records as synced (use if stuck)'),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  final cleared = await _syncService.clearStuckPending();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Cleared $cleared stuck records'), backgroundColor: Colors.orange),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isOnline = _networkService.isOnline;
@@ -69,32 +128,37 @@ class _SyncStatusWidgetState extends State<SyncStatusWidget> {
         ],
         // Sync button
         const SizedBox(width: 4),
-        IconButton(
-          icon: isSyncing
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                )
-              : const Icon(Icons.sync, size: 20),
-          tooltip: isSyncing ? 'Syncing...' : 'Sync now',
-          onPressed: isSyncing
-              ? null
-              : () async {
-                  await _syncService.syncAll();
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(_syncService.lastMessage),
-                      backgroundColor: _syncService.status == SyncStatus.success
-                          ? Colors.green
-                          : _syncService.status == SyncStatus.error
-                              ? Colors.red
-                              : Colors.blue,
-                      duration: const Duration(seconds: 2),
-                    ),
-                  );
-                },
+        GestureDetector(
+          onLongPress: pending > 0
+              ? () => _showSyncOptions(context)
+              : null,
+          child: IconButton(
+            icon: isSyncing
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.sync, size: 20),
+            tooltip: isSyncing ? 'Syncing...' : (pending > 0 ? 'Sync now (long-press for options)' : 'Sync now'),
+            onPressed: isSyncing
+                ? null
+                : () async {
+                    await _syncService.syncAll();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(_syncService.lastMessage),
+                        backgroundColor: _syncService.status == SyncStatus.success
+                            ? Colors.green
+                            : _syncService.status == SyncStatus.error
+                                ? Colors.red
+                                : Colors.blue,
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  },
+          ),
         ),
       ],
     );

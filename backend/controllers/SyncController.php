@@ -11,13 +11,13 @@ class SyncController {
 
     // Tables available for pull sync (in dependency order)
     private $pullableTables = [
-        'departments' => ['pk' => 'DepartmentID', 'table' => 'DEPARTMENTS'],
-        'faculties'   => ['pk' => 'FacultyID',     'table' => 'FACULTIES'],
-        'rooms'       => ['pk' => 'RoomID',         'table' => 'ROOMS'],
-        'subjects'    => ['pk' => 'SubjectID',      'table' => 'SUBJECTS'],
-        'schedules'   => ['pk' => 'ScheduleID',     'table' => 'SCHEDULES'],
-        'attendancedevices' => ['pk' => 'DeviceID', 'table' => 'ATTENDANCEDEVICES'],
-        'attendances' => ['pk' => 'AttendanceID',   'table' => 'ATTENDANCES'],
+        'departments' => ['pk' => 'DepartmentID', 'table' => 'departments'],
+        'faculties'   => ['pk' => 'FacultyID',     'table' => 'faculties'],
+        'rooms'       => ['pk' => 'RoomID',         'table' => 'rooms'],
+        'subjects'    => ['pk' => 'SubjectID',      'table' => 'subjects'],
+        'schedules'   => ['pk' => 'ScheduleID',     'table' => 'schedules'],
+        'attendancedevices' => ['pk' => 'DeviceID', 'table' => 'attendancedevices'],
+        'attendances' => ['pk' => 'AttendanceID',   'table' => 'attendances'],
     ];
 
     public function __construct() {
@@ -88,14 +88,14 @@ class SyncController {
         // Check if record already exists on server
         $existing = null;
         if ($remoteId) {
-            $stmt = $this->db->prepare("SELECT * FROM ATTENDANCES WHERE AttendanceID = ?");
+            $stmt = $this->db->prepare("SELECT * FROM attendances WHERE AttendanceID = ?");
             $stmt->execute([$remoteId]);
             $existing = $stmt->fetch();
         }
 
         if (!$existing && $scheduleId) {
             $stmt = $this->db->prepare(
-                "SELECT * FROM ATTENDANCES WHERE FacultyID = ? AND Date = ? AND ScheduleID = ? LIMIT 1"
+                "SELECT * FROM attendances WHERE FacultyID = ? AND Date = ? AND ScheduleID = ? LIMIT 1"
             );
             $stmt->execute([$facultyId, $date, $scheduleId]);
             $existing = $stmt->fetch();
@@ -108,7 +108,7 @@ class SyncController {
 
             // Last-write-wins: update if local version is newer or equal
             $stmt = $this->db->prepare("
-                UPDATE ATTENDANCES SET
+                UPDATE attendances SET
                     TimeIn = ?,
                     TimeOut = ?,
                     AttendanceStatus = ?,
@@ -137,7 +137,7 @@ class SyncController {
             }
 
             $stmt = $this->db->prepare("
-                INSERT INTO ATTENDANCES
+                INSERT INTO attendances
                     (FacultyID, DeviceID, ScheduleID, Date, DayOfWeek, TimeIn, TimeOut, AttendanceStatus, Remarks)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
@@ -239,7 +239,7 @@ class SyncController {
     public function lastUpdated(): void {
         Auth::requireAuth();
 
-        $stmt = $this->db->prepare("SELECT MAX(UpdatedAt) as lastUpdated FROM ATTENDANCES");
+        $stmt = $this->db->prepare("SELECT MAX(UpdatedAt) as lastUpdated FROM attendances");
         $stmt->execute();
         $row = $stmt->fetch();
 
